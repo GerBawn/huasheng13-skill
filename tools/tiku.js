@@ -162,6 +162,24 @@ function findImages(html) {
   return out;
 }
 
+function isDataModule(module) {
+  return String(module || "").includes("资料");
+}
+
+const ARTICLE_REF_RE = /文中|文章中|本文|该短文|上述材料|根据(?:上述)?材料|材料[一二三四五六123456号]?中|材料\s*[123456一二三四五六]/;
+const PARA_REF_RE = /第[①-⑳\d一二三四五六七八九十]+段/;
+const STANDALONE_CUE_RE = /这段文字|这段话|下列文段|根据这段|依次填入画?横线|填入画?横线部分最恰当/;
+
+function questionBelongsToMaterial(stem, module) {
+  if (isDataModule(module)) return true;
+  const text = stripHtml(stem).replace(/\s+/g, "");
+  if (!text) return true;
+  if (ARTICLE_REF_RE.test(text) || PARA_REF_RE.test(text)) return true;
+  if (STANDALONE_CUE_RE.test(text) && text.length > 50) return false;
+  if (text.length <= 100) return true;
+  return false;
+}
+
 function parseMarkdown(text, info = {}) {
   const { meta, body } = parseFrontmatter(text);
   const paper = meta["试卷"] || info.paper || "";
@@ -213,6 +231,9 @@ function parseMarkdown(text, info = {}) {
     }
     const { options, answer } = parseOptions(raw);
     const stem = extractStem(raw);
+    if (currentMaterial && !questionBelongsToMaterial(stem, module)) {
+      currentMaterial = null;
+    }
     const analysis = parseAnalysis(raw);
     const type = classifyType(module, block.typeRaw, stripHtml(stem));
     const qid = block.qid || `${paper}:${module}:${block.no}`;
@@ -611,6 +632,8 @@ module.exports = {
   BANK_REPO,
   defaultBankDir,
   defaultIndexPath,
+  questionBelongsToMaterial,
+  isDataModule,
   parseMarkdown,
   parseFile,
   buildIndex,

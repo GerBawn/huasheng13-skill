@@ -103,10 +103,46 @@
     .status { display: inline-block; border-radius: 999px; padding: 2px 8px; font-size: 12px; }
     .status.done { background: var(--ok-soft); color: var(--ok); }
     .status.open { background: var(--mid-soft); color: var(--mid); }
+    html, body { height: 100%; }
+    .chrome {
+      position: sticky;
+      top: 0;
+      z-index: 40;
+      background: var(--bg);
+      flex-shrink: 0;
+      padding-bottom: 2px;
+    }
+    body.exam-on { overflow: hidden; }
+    body.exam-on .app {
+      height: 100%;
+      padding: 28px 20px 0;
+      display: flex;
+      flex-direction: column;
+    }
+    body.exam-on .chrome h1 { margin-bottom: 2px; }
+    body.exam-on .chrome .meta { margin-bottom: 0; }
+    body.exam-on .tabs { margin: 10px 0 0; }
+    body.exam-on #panel-latest.active {
+      display: flex;
+      flex: 1;
+      min-height: 0;
+    }
+    #panel-latest:not(.active) .exam-frame { display: none; }
+    body.exam-on .exam-frame {
+      flex: 1;
+      width: 100%;
+      height: 100%;
+      border: 0;
+      border-radius: 0;
+      background: var(--bg);
+      position: relative;
+      z-index: 1;
+    }
   </style>
 </head>
 <body>
   <div class="app">
+    <header class="chrome">
     <h1>公考练习</h1>
     <div class="meta" id="meta">正在读取记录…</div>
     <nav class="tabs" id="tabs">
@@ -115,6 +151,7 @@
       <button type="button" data-tab="questions">历史问题</button>
       <button type="button" data-tab="map">能力地图</button>
     </nav>
+    </header>
 
     <section class="panel active" id="panel-latest"></section>
     <section class="panel" id="panel-papers"></section>
@@ -202,6 +239,8 @@
       const tab = TABS.includes(name) ? name : "latest";
       document.querySelectorAll(".tabs button").forEach(btn => btn.classList.toggle("active", btn.dataset.tab === tab));
       TABS.forEach(id => $("panel-" + id).classList.toggle("active", id === tab));
+      const examOn = tab === "latest" && !!document.querySelector("#panel-latest iframe.exam-frame");
+      document.body.classList.toggle("exam-on", examOn);
       const hash = "#" + tab;
       if (location.hash !== hash) history.replaceState(null, "", hash);
     }
@@ -209,12 +248,13 @@
     function paperRowHtml(p) {
       const acc = p.submitted && p.accuracy != null ? Math.round(p.accuracy * 100) + "%" : "未交卷";
       const href = pageHref(p.page);
-      const title = href ? `<a href="${escapeHtml(href)}">${escapeHtml(p.title || p.paper || "未命名试卷")}</a>` : escapeHtml(p.title || p.paper || "未命名试卷");
+      const title = href ? `<a href="${escapeHtml(href)}" data-open-exam>${escapeHtml(p.title || (p.submitted ? p.paper : "") || "未命名试卷")}</a>` : escapeHtml(p.title || (p.submitted ? p.paper : "") || "未命名试卷");
       const status = p.submitted
         ? `<span class="status done">已交卷</span>`
         : `<span class="status open">未交卷</span>`;
+      const sub = p.submitted && p.paper && p.paper !== p.title ? p.paper : "";
       return `<tr>
-        <td class="left">${title}<div class="sub">${escapeHtml(p.paper && p.paper !== p.title ? p.paper : "")}</div></td>
+        <td class="left">${title}${sub ? `<div class="sub">${escapeHtml(sub)}</div>` : ""}</td>
         <td>${escapeHtml(p.year || "—")}</td>
         <td>${escapeHtml(p.region || "—")}</td>
         <td>${p.questionCount || p.total || 0}</td>
@@ -226,27 +266,15 @@
     function renderLatest(home) {
       const p = home.latest;
       if (!p) {
-        $("panel-latest").innerHTML = `<section class="card"><p class="empty">还没有出过题。用真题模式或练习出一套题后，最近一次试卷会出现在这里。</p></section>`;
+        $("panel-latest").innerHTML = `<section class="card"><p class="empty">还没有出过题。用真题模式或练习出一套题后，题目会直接出现在这个标签里。</p></section>`;
         return;
       }
       const href = pageHref(p.page);
-      const acc = p.submitted && p.accuracy != null ? Math.round(p.accuracy * 100) + "%" : "还未交卷";
-      $("panel-latest").innerHTML = `
-        <section class="card">
-          <h2>${escapeHtml(p.title || p.paper || "最近一次试卷")}</h2>
-          <p class="meta">${[p.paper && p.paper !== p.title ? p.paper : "", p.year, p.region, p.isZhenti ? "真题" : "", p.mode || ""].filter(Boolean).join(" · ")}</p>
-          <div class="score" style="grid-template-columns: repeat(3, minmax(0, 1fr));">
-            <div class="stat"><div class="n">${p.questionCount || p.total || 0}</div><div class="l">题目数</div></div>
-            <div class="stat"><div class="n">${acc}</div><div class="l">正确率</div></div>
-            <div class="stat"><div class="n">${p.submitted ? (p.correct || 0) + " / " + (p.scored || p.questionCount || 0) : "—"}</div><div class="l">答对</div></div>
-          </div>
-          <p class="meta">出题时间 ${fmtTime(p.createdAt)}${p.submittedAt ? " · 交卷时间 " + fmtTime(p.submittedAt) : " · 尚未交卷"}</p>
-          <div class="latest-actions">
-            ${href ? `<a class="btn primary" href="${escapeHtml(href)}">${p.submitted ? "查看这份试卷" : "继续作答"}</a>` : ""}
-            <button class="btn" type="button" data-go="papers">查看历史试卷</button>
-            <button class="btn" type="button" data-go="map">打开能力地图</button>
-          </div>
-        </section>`;
+      if (!href) {
+        $("panel-latest").innerHTML = `<section class="card"><p class="empty">最近一套题还没有练习页，请重新出题。</p></section>`;
+        return;
+      }
+      $("panel-latest").innerHTML = `<iframe class="exam-frame" title="${escapeHtml(p.title || "练习")}" src="${escapeHtml(href)}"></iframe>`;
     }
 
     function renderPapers(home) {
@@ -265,6 +293,10 @@
 
     function renderQuestions(home) {
       const items = home.questions || [];
+      if (!items.length) {
+        $("panel-questions").innerHTML = `<section class="card"><h2>历史问题</h2><p class="empty">还没有专门讲解过的题目。练习过的套题请到「历史试卷」查看；在这里用助手讲完的单题会记录下来。</p></section>`;
+        return;
+      }
       $("panel-questions").innerHTML = `
         <section class="card">
           <h2>历史问题</h2>
@@ -280,7 +312,7 @@
           return blob.includes(key);
         });
         if (!rows.length) {
-          box.innerHTML = `<p class="empty">${items.length ? "没有匹配的问题。" : "还没有历史问题。出题或讲解后会记录在这里。"}</p>`;
+          box.innerHTML = `<p class="empty">${items.length ? "没有匹配的问题。" : "还没有专门讲解过的题目。练习过的套题请到「历史试卷」查看。"}</p>`;
           return;
         }
         box.innerHTML = rows.map(q => {
@@ -408,7 +440,25 @@
       const btn = e.target.closest("button[data-tab]");
       if (btn) showTab(btn.dataset.tab);
     });
+    function openExam(href) {
+      if (!href) return;
+      let frame = document.querySelector("#panel-latest iframe.exam-frame");
+      if (!frame) {
+        $("panel-latest").innerHTML = `<iframe class="exam-frame" title="练习" src="${escapeHtml(href)}"></iframe>`;
+      } else {
+        const next = new URL(href, location.origin).href;
+        if (frame.src !== next) frame.src = href;
+      }
+      showTab("latest");
+    }
+
     document.body.addEventListener("click", (e) => {
+      const examLink = e.target.closest("[data-open-exam]");
+      if (examLink) {
+        e.preventDefault();
+        openExam(examLink.getAttribute("href"));
+        return;
+      }
       const go = e.target.closest("[data-go]");
       if (go) showTab(go.dataset.go);
     });
@@ -424,7 +474,7 @@
         const mapBody = await mapRes.json();
         const home = homeBody.home || {};
         const map = mapBody.map || {};
-        $("meta").textContent = "更新于 " + (map.updatedAt || home.updatedAt || "—") +
+        $("meta").textContent = "更新于 " + fmtTime(map.updatedAt || home.updatedAt) +
           " · 历史试卷 " + (home.papers || []).length + " 套 · 历史问题 " + (home.questions || []).length + " 道";
         renderLatest(home);
         renderPapers(home);

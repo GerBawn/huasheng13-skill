@@ -85,9 +85,74 @@ function safeToken(value, fallback) {
 
 function sessionFilename(record) {
   const sid = safeToken(record.sessionId || "", "practice");
-  const started = record.startedAt || record.savedAt || nowIso();
-  const ts = String(started).replace(/\D/g, "").slice(0, 14) || timestampLocal();
-  return `gongkao-session-${sid}-${ts}.json`;
+  return `gongkao-session-${sid}.json`;
+}
+
+function sessionIdOf(rec) {
+  return String((rec && (rec.sessionId || rec.id)) || "");
+}
+
+function isSubmitted(rec) {
+  if (!rec || typeof rec !== "object") return false;
+  if (rec.submitted === false) return false;
+  if (rec.submitted === true) return true;
+  // legacy records have no submitted flag; they were only written on submit or manual save
+  return Array.isArray(rec.items);
+}
+
+function recordTimestamp(rec, fallback) {
+  return (rec && (rec.savedAt || rec.submittedAt || rec.startedAt)) || fallback || "";
+}
+
+function newerSession(a, b) {
+  const ta = recordTimestamp(a.data, path.basename(a.path));
+  const tb = recordTimestamp(b.data, path.basename(b.path));
+  if (ta !== tb) return ta > tb;
+  return a.path >= b.path;
+}
+
+function sessionsForId(root, sessionId) {
+  const sid = String(sessionId || "");
+  if (!sid) return [];
+  return loadSessions(root).filter((item) => sessionIdOf(item.data) === sid);
+}
+
+function pickSessionRecord(items) {
+  if (!items.length) return null;
+  const submitted = items.filter((item) => isSubmitted(item.data));
+  const pool = submitted.length ? submitted : items;
+  return pool.reduce((best, item) => (newerSession(item, best) ? item : best));
+}
+
+function loadSessionById(root, sessionId) {
+  const picked = pickSessionRecord(sessionsForId(root, sessionId));
+  return picked ? picked.data : null;
+}
+
+function resolveSessionWritePath(root, record) {
+  const sid = sessionIdOf(record) || "practice";
+  const existing = sessionsForId(root, sid);
+  const canonical = path.join(root, "sessions", sessionFilename({ sessionId: sid }));
+  const canonItem = existing.find((item) => path.resolve(item.path) === path.resolve(canonical));
+  if (canonItem) return canonItem.path;
+  const latest = pickSessionRecord(existing);
+  if (latest) return latest.path;
+  return canonical;
+}
+
+function uniqueSubmittedSessions(root) {
+  const byId = new Map();
+  for (const item of loadSessions(root)) {
+    if (!isSubmitted(item.data)) continue;
+    const key = sessionIdOf(item.data) || item.path;
+    const prev = byId.get(key);
+    if (!prev || newerSession(item, prev)) byId.set(key, item);
+  }
+  return [...byId.values()].sort((a, b) => {
+    const ka = recordTimestamp(a.data, path.basename(a.path));
+    const kb = recordTimestamp(b.data, path.basename(b.path));
+    return ka < kb ? -1 : ka > kb ? 1 : 0;
+  });
 }
 
 function timestampLocal() {
@@ -179,7 +244,7 @@ function rebuild(root) {
   const byType = {};
   const sessionRows = [];
 
-  for (const { path: filePath, data: rec } of loadSessions(root)) {
+  for (const { path: filePath, data: rec } of uniqueSubmittedSessions(root)) {
     const summary = rec.summary || {};
     const savedAt = rec.savedAt || "";
     sessionRows.push({
@@ -324,7 +389,7 @@ function buildMap(root) {
     for (const typ of types) ensure(name, typ);
   }
 
-  for (const { data: rec } of loadSessions(root)) {
+  for (const { data: rec } of uniqueSubmittedSessions(root)) {
     const savedAt = rec.savedAt || "";
     for (const item of rec.items || []) {
       if (item.correct === null || item.correct === undefined) continue;
@@ -426,7 +491,7 @@ function buildMap(root) {
   const zhentiIds = new Set();
   let zhentiAttempts = 0;
   let zhentiCorrect = 0;
-  for (const { data: rec } of loadSessions(root)) {
+  for (const { data: rec } of uniqueSubmittedSessions(root)) {
     for (const item of rec.items || []) {
       if (item.correct === null || item.correct === undefined) continue;
       const paper = item.paper || item.source || rec.paper || rec.exam || "";
@@ -561,13 +626,15 @@ function buildHome(root) {
     data,
     mtime: fs.existsSync(filePath) ? fs.statSync(filePath).mtimeMs : 0,
   }));
-  const sessionById = new Map();
+  const grouped = new Map();
   for (const row of sessions) {
-    const rec = row.data;
-    const key = rec.sessionId || rec.id || row.file;
-    const prev = sessionById.get(key);
-    const ts = rec.savedAt || rec.startedAt || "";
-    if (!prev || (prev.data.savedAt || prev.data.startedAt || "") <= ts) sessionById.set(key, row);
+    const key = sessionIdOf(row.data) || row.file;
+    if (!grouped.has(key)) grouped.set(key, []);
+    grouped.get(key).push(row);
+  }
+  const sessionById = new Map();
+  for (const [key, items] of grouped) {
+    sessionById.set(key, pickSessionRecord(items));
   }
 
   const papers = [];
@@ -576,7 +643,7 @@ function buildHome(root) {
     const rec = row.data;
     const sessionId = rec.sessionId || rec.id || "";
     const session = sessionId ? sessionById.get(sessionId) : null;
-    const submitted = kind === "session" || rec.status === "submitted" || !!(session && (session.data.summary || session.data.items));
+    const submitted = isSubmitted(session ? session.data : (kind === "session" ? rec : null));
     const src = submitted && session ? session.data : rec;
     const summary = src.summary || rec.summary || {};
     const key = row.file + "::" + (sessionId || rec.paper || rec.title || "");
@@ -625,23 +692,6 @@ function buildHome(root) {
       at: rec.askedAt || rec.createdAt || "",
       analysis: rec.analysis || "",
     });
-  }
-  for (const { data: rec } of loadSessions(root)) {
-    for (const item of rec.items || []) {
-      questions.push({
-        id: item.id || item.qid || "",
-        qid: item.qid || "",
-        stem: item.stem || "",
-        module: item.module || "",
-        type: item.type || "",
-        paper: item.paper || item.source || rec.paper || rec.exam || "",
-        questionNo: item.questionNo || "",
-        kind: "practice",
-        correct: item.correct,
-        at: rec.savedAt || rec.startedAt || "",
-        analysis: item.analysis || "",
-      });
-    }
   }
   questions.sort((a, b) => String(b.at || "").localeCompare(String(a.at || "")));
 
@@ -816,6 +866,16 @@ function createHandler(root, port) {
         sendBytes(res, 200, homePageHtml(), "text/html; charset=utf-8");
         return;
       }
+      const sessionMatch = pathname.match(/^\/api\/sessions\/([^/]+)$/);
+      if (sessionMatch) {
+        const rec = loadSessionById(root, sessionMatch[1]);
+        if (!rec) {
+          sendJson(res, 404, { ok: false, error: "未找到该场次" });
+          return;
+        }
+        sendJson(res, 200, { ok: true, session: rec });
+        return;
+      }
       if (pathname.startsWith("/pages/")) {
         const rel = pathname.slice("/pages/".length);
         const target = safePagePath(root, rel);
@@ -861,12 +921,12 @@ function createHandler(root, port) {
           const payload = JSON.parse(Buffer.concat(chunks).toString("utf8"));
           if (pathname === "/api/sessions") {
             const record = validateRecord(payload);
-            const filename = sessionFilename(record);
-            writeJson(path.join(root, "sessions", filename), record);
+            const filePath = resolveSessionWritePath(root, record);
+            writeJson(filePath, record);
             const { progress, cuoti } = persistProgress(root);
             sendJson(res, 200, {
               ok: true,
-              file: "sessions/" + filename,
+              file: "sessions/" + path.basename(filePath),
               dataDir: root,
               summary: record.summary || {},
               progress,
@@ -1003,4 +1063,20 @@ if (require.main === module) {
   });
 }
 
-module.exports = { buildMap, persistProgress, canonType, canonModule, sessionFilename };
+module.exports = {
+  buildMap,
+  persistProgress,
+  buildHome,
+  canonType,
+  canonModule,
+  sessionFilename,
+  isSubmitted,
+  loadSessionById,
+  resolveSessionWritePath,
+  uniqueSubmittedSessions,
+  pickSessionRecord,
+  sessionsForId,
+  createHandler,
+  ensureDirs,
+  validateRecord,
+};

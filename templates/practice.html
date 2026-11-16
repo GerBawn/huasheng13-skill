@@ -110,7 +110,17 @@
     .stat .n { font-size: 24px; font-weight: 650; }
     .stat .l { font-size: 12px; color: var(--muted); }
     .hidden { display: none !important; }
+    html.embedded, html.embedded body { background: var(--bg); }
+    html.embedded .app { max-width: none; padding: 8px 4px 108px; }
+    html.embedded header.top { margin-bottom: 12px; align-items: center; justify-content: flex-start; }
+    html.embedded header.top .title { display: none; }
+    html.embedded #api-status,
+    html.embedded #copy,
+    html.embedded #save { display: none !important; }
+    html.embedded .dock { left: 0; right: 0; }
+    html.embedded .dock-inner { max-width: none; padding: 0 8px; }
   </style>
+  <script>if (window.self !== window.top) document.documentElement.classList.add("embedded");</script>
 </head>
 <body>
   <div class="app">
@@ -311,10 +321,16 @@
       return {
         savedAt: new Date().toISOString(),
         startedAt: new Date(state.startedAt).toISOString(),
+        submitted: !!state.submitted,
         sessionId: session.id,
         title: session.title,
         mode: session.mode,
-        exam: session.exam || "",
+        exam: session.exam || session.paper || "",
+        paper: session.paper || session.exam || "",
+        year: session.year || "",
+        region: session.region || "",
+        isZhenti: !!session.isZhenti || isZhentiSession,
+        page: session.page || "",
         durationSeconds: (session.durationMinutes || 0) * 60,
         usedSeconds: state.usedSeconds,
         items,
@@ -350,18 +366,31 @@
     }
 
     const API = window.GONGKAO_API || "http://127.0.0.1:17813";
+    const DRAFT_KEY = "gongkao-draft-" + String(session.id || "practice");
     let apiOk = false;
+    let apiChecked = false;
+    let draftTimer = null;
+    let booted = false;
 
     function fileName() {
       const sid = String(session.id || "practice").replace(/[^\w\-]+/g, "");
-      const ts = new Date(state.startedAt).toISOString().slice(0,19).replace(/[:T]/g, "");
-      return `gongkao-session-${sid}-${ts}.json`;
+      return `gongkao-session-${sid}.json`;
     }
 
     function setSaveMsg(text, ok) {
       const el = $("save-msg");
       el.textContent = text || "";
       el.style.color = ok === true ? "var(--ok)" : (ok === false ? "var(--bad)" : "var(--muted)");
+    }
+
+    function isEmbedded() {
+      return document.documentElement.classList.contains("embedded");
+    }
+
+    function updateActionButtons() {
+      const hideFallback = !apiChecked || apiOk;
+      $("save").classList.toggle("hidden", hideFallback);
+      $("copy").classList.toggle("hidden", isEmbedded() || hideFallback);
     }
 
     function updateApiChip() {
@@ -375,6 +404,7 @@
         el.classList.remove("ok");
         el.classList.add("bad");
       }
+      updateActionButtons();
     }
 
     async function pingApi() {
@@ -384,8 +414,72 @@
       } catch (err) {
         apiOk = false;
       }
+      apiChecked = true;
       updateApiChip();
       return apiOk;
+    }
+
+    function recordTime(rec) {
+      return rec && rec.savedAt ? Date.parse(rec.savedAt) || 0 : 0;
+    }
+
+    function readLocalDraft() {
+      try {
+        const raw = localStorage.getItem(DRAFT_KEY);
+        return raw ? JSON.parse(raw) : null;
+      } catch (err) {
+        return null;
+      }
+    }
+
+    function writeLocalDraft(rec) {
+      try {
+        localStorage.setItem(DRAFT_KEY, JSON.stringify(rec || record()));
+      } catch (err) {}
+    }
+
+    function applyRecord(rec) {
+      if (!rec) return;
+      if (rec.startedAt) {
+        const t = Date.parse(rec.startedAt);
+        if (!Number.isNaN(t)) state.startedAt = t;
+      }
+      if (typeof rec.usedSeconds === "number") state.usedSeconds = rec.usedSeconds;
+      const items = Array.isArray(rec.items) ? rec.items : [];
+      if (items.length) {
+        items.forEach(it => {
+          if (!it || !it.id) return;
+          if (it.userAnswer) state.answers[it.id] = it.userAnswer;
+          if (it.flagged) state.flags[it.id] = true;
+        });
+      } else {
+        if (rec.answers && typeof rec.answers === "object") Object.assign(state.answers, rec.answers);
+        if (rec.flags && typeof rec.flags === "object") Object.assign(state.flags, rec.flags);
+      }
+      if (rec.submitted === true || session.mode === "review" || session.mode === "report") {
+        state.submitted = true;
+        state.ticking = false;
+      }
+    }
+
+    function pickRestore(server, local) {
+      if (server && server.submitted) return server;
+      if (local && local.submitted && !server) return local;
+      if (server && local) return recordTime(server) >= recordTime(local) ? server : local;
+      return server || local || null;
+    }
+
+    async function fetchSession() {
+      if (!session.id) return null;
+      try {
+        const r = await fetch(API + "/api/sessions/" + encodeURIComponent(session.id), { cache: "no-store" });
+        if (r.status === 404) return null;
+        if (!r.ok) return null;
+        const data = await r.json();
+        return data && data.ok ? (data.session || data.record || data.data) : null;
+      } catch (err) {
+        return null;
+      }
     }
 
     function downloadRecord() {
@@ -398,20 +492,43 @@
       URL.revokeObjectURL(a.href);
     }
 
-    async function saveToServer() {
+    async function saveToServer(rec) {
       const r = await fetch(API + "/api/sessions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(record())
+        body: JSON.stringify(rec || record())
       });
       if (!r.ok) throw new Error("bad status");
       return r.json();
     }
 
+    async function pushDraft() {
+      if (state.submitted) return;
+      const rec = record();
+      rec.submitted = false;
+      writeLocalDraft(rec);
+      if (!apiOk) return;
+      try {
+        await saveToServer(rec);
+        setSaveMsg("已自动保存草稿", true);
+      } catch (err) {
+        setSaveMsg("草稿已保存在本机浏览器，记录服务稍后再试", false);
+      }
+    }
+
+    function scheduleDraftSave() {
+      if (!booted || state.submitted) return;
+      writeLocalDraft();
+      clearTimeout(draftTimer);
+      draftTimer = setTimeout(pushDraft, 600);
+    }
+
     async function autoSave() {
+      const rec = record();
+      writeLocalDraft(rec);
       try {
         if (await pingApi()) {
-          const res = await saveToServer();
+          const res = await saveToServer(rec);
           const file = (res && res.file) || "sessions/";
           setSaveMsg("已自动保存到本机记录（" + file + "）", true);
           return true;
@@ -425,11 +542,14 @@
     async function saveFile() {
       if (await pingApi()) {
         try {
-          const res = await saveToServer();
+          const rec = record();
+          writeLocalDraft(rec);
+          const res = await saveToServer(rec);
           setSaveMsg("已保存到本机记录（" + ((res && res.file) || "sessions/") + "）", true);
           return;
         } catch (err) {}
       }
+      writeLocalDraft();
       downloadRecord();
       setSaveMsg("已下载作答记录，请放到「公考练习记录/sessions/」", false);
     }
@@ -447,6 +567,7 @@
       state.submitted = true;
       state.ticking = false;
       state.usedSeconds = Math.floor((Date.now() - state.startedAt) / 1000);
+      clearTimeout(draftTimer);
       renderReport();
       render();
       await autoSave();
@@ -462,15 +583,20 @@
       const id = qs[state.i].id;
       state.flags[id] = !state.flags[id];
       render();
+      scheduleDraftSave();
     });
     $("question").addEventListener("click", e => {
       const btn = e.target.closest(".opt");
       if (!btn || state.submitted) return;
       state.answers[qs[state.i].id] = btn.dataset.key;
       render();
+      scheduleDraftSave();
     });
     $("question").addEventListener("input", e => {
-      if (e.target.classList.contains("essay")) state.answers[qs[state.i].id] = e.target.value;
+      if (e.target.classList.contains("essay")) {
+        state.answers[qs[state.i].id] = e.target.value;
+        scheduleDraftSave();
+      }
     });
     $("submit").addEventListener("click", submit);
     $("save").addEventListener("click", saveFile);
@@ -483,13 +609,17 @@
         if (idx >= 0 && qs[state.i] && qs[state.i].options && qs[state.i].options[idx]) {
           state.answers[qs[state.i].id] = letter(idx);
           render();
+          scheduleDraftSave();
         }
       } else if (e.key === "ArrowLeft") $("prev").click();
       else if (e.key === "ArrowRight") $("next").click();
     });
 
     setInterval(() => {
-      if (!state.ticking && session.durationMinutes) return;
+      if (!state.ticking) {
+        $("timer").textContent = fmt(state.usedSeconds);
+        return;
+      }
       state.usedSeconds = Math.floor((Date.now() - state.startedAt) / 1000);
       const left = remaining();
       const el = $("timer");
@@ -501,14 +631,27 @@
       }
     }, 250);
 
-    pingApi();
-    setInterval(pingApi, 5000);
-    if (session.mode === "report") renderReport();
-    if (!qs.length) {
-      $("question").innerHTML = "<p>这一份练习还没有题目。</p>";
-    } else {
-      render();
+    async function boot() {
+      updateActionButtons();
+      const online = await pingApi();
+      const server = online ? await fetchSession() : null;
+      const local = readLocalDraft();
+      applyRecord(pickRestore(server, local));
+      booted = true;
+      if (state.submitted || session.mode === "report") renderReport();
+      if (!qs.length) {
+        $("question").innerHTML = "<p>这一份练习还没有题目。</p>";
+      } else {
+        render();
+      }
     }
+
+    setInterval(pingApi, 5000);
+    boot().catch(() => {
+      booted = true;
+      if (!qs.length) $("question").innerHTML = "<p>这一份练习还没有题目。</p>";
+      else render();
+    });
   </script>
 </body>
 </html>
