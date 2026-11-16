@@ -423,6 +423,14 @@
       return rec && rec.savedAt ? Date.parse(rec.savedAt) || 0 : 0;
     }
 
+    function recordIsSubmitted(rec) {
+      if (!rec) return false;
+      if (rec.submitted === false) return false;
+      if (rec.submitted === true) return true;
+      const summary = rec.summary || {};
+      return Array.isArray(rec.items) && (summary.scored != null || summary.total != null || rec.items.some(it => it && String(it.userAnswer || "").trim()));
+    }
+
     function readLocalDraft() {
       try {
         const raw = localStorage.getItem(DRAFT_KEY);
@@ -456,15 +464,15 @@
         if (rec.answers && typeof rec.answers === "object") Object.assign(state.answers, rec.answers);
         if (rec.flags && typeof rec.flags === "object") Object.assign(state.flags, rec.flags);
       }
-      if (rec.submitted === true || session.mode === "review" || session.mode === "report") {
+      if (recordIsSubmitted(rec) || session.mode === "review" || session.mode === "report") {
         state.submitted = true;
         state.ticking = false;
       }
     }
 
     function pickRestore(server, local) {
-      if (server && server.submitted) return server;
-      if (local && local.submitted && !server) return local;
+      if (server && recordIsSubmitted(server)) return server;
+      if (local && recordIsSubmitted(local) && !server) return local;
       if (server && local) return recordTime(server) >= recordTime(local) ? server : local;
       return server || local || null;
     }

@@ -104,11 +104,40 @@ function recordTimestamp(rec, fallback) {
   return (rec && (rec.savedAt || rec.submittedAt || rec.startedAt)) || fallback || "";
 }
 
+function sessionFilePath(item) {
+  return (item && (item.path || item.file)) || "";
+}
+
+function answeredCount(rec) {
+  if (!rec) return 0;
+  const items = Array.isArray(rec.items) ? rec.items : [];
+  const fromItems = items.filter((it) => it && String(it.userAnswer || "").trim()).length;
+  if (fromItems) return fromItems;
+  if (rec.answers && typeof rec.answers === "object") {
+    return Object.values(rec.answers).filter((v) => String(v || "").trim()).length;
+  }
+  return 0;
+}
+
 function newerSession(a, b) {
-  const ta = recordTimestamp(a.data, path.basename(a.path));
-  const tb = recordTimestamp(b.data, path.basename(b.path));
+  const pa = sessionFilePath(a);
+  const pb = sessionFilePath(b);
+  const ta = recordTimestamp(a && a.data, pa ? path.basename(pa) : "");
+  const tb = recordTimestamp(b && b.data, pb ? path.basename(pb) : "");
   if (ta !== tb) return ta > tb;
-  return a.path >= b.path;
+  return pa >= pb;
+}
+
+function betterSession(a, b) {
+  if (!b) return true;
+  if (!a) return false;
+  const aSub = isSubmitted(a.data);
+  const bSub = isSubmitted(b.data);
+  if (aSub !== bSub) return aSub;
+  const aAns = answeredCount(a.data);
+  const bAns = answeredCount(b.data);
+  if ((aAns === 0) !== (bAns === 0)) return aAns > 0;
+  return newerSession(a, b);
 }
 
 function sessionsForId(root, sessionId) {
@@ -119,9 +148,7 @@ function sessionsForId(root, sessionId) {
 
 function pickSessionRecord(items) {
   if (!items.length) return null;
-  const submitted = items.filter((item) => isSubmitted(item.data));
-  const pool = submitted.length ? submitted : items;
-  return pool.reduce((best, item) => (newerSession(item, best) ? item : best));
+  return items.reduce((best, item) => (betterSession(item, best) ? item : best));
 }
 
 function loadSessionById(root, sessionId) {
@@ -133,6 +160,18 @@ function resolveSessionWritePath(root, record) {
   const sid = sessionIdOf(record) || "practice";
   const existing = sessionsForId(root, sid);
   const canonical = path.join(root, "sessions", sessionFilename({ sessionId: sid }));
+  // Never overwrite a real submitted attempt with a draft.
+  if (record && record.submitted === false) {
+    const kept = existing.filter((item) => isSubmitted(item.data) && answeredCount(item.data) > 0);
+    if (kept.length) {
+      const draftPath = path.join(root, "sessions", `gongkao-session-${safeToken(sid, "practice")}-draft.json`);
+      const existingDraft = existing.find((item) => {
+        const p = sessionFilePath(item);
+        return path.resolve(p) === path.resolve(draftPath) || /draft\.json$/.test(p);
+      });
+      return existingDraft ? (existingDraft.path || existingDraft.file) : draftPath;
+    }
+  }
   const canonItem = existing.find((item) => path.resolve(item.path) === path.resolve(canonical));
   if (canonItem) return canonItem.path;
   const latest = pickSessionRecord(existing);
@@ -146,7 +185,7 @@ function uniqueSubmittedSessions(root) {
     if (!isSubmitted(item.data)) continue;
     const key = sessionIdOf(item.data) || item.path;
     const prev = byId.get(key);
-    if (!prev || newerSession(item, prev)) byId.set(key, item);
+    if (!prev || betterSession(item, prev)) byId.set(key, item);
   }
   return [...byId.values()].sort((a, b) => {
     const ka = recordTimestamp(a.data, path.basename(a.path));
@@ -873,7 +912,7 @@ function createHandler(root, port) {
           sendJson(res, 404, { ok: false, error: "未找到该场次" });
           return;
         }
-        sendJson(res, 200, { ok: true, session: rec });
+        sendJson(res, 200, { ok: true, session: { ...rec, submitted: isSubmitted(rec) } });
         return;
       }
       if (pathname.startsWith("/pages/")) {

@@ -145,6 +145,53 @@ describe("session read and overwrite", () => {
     assert.equal(rec.submitted, true);
   });
 
+  it("prefers an answered legacy record over a later blank auto-submit", () => {
+    writeSession(root, "gongkao-session-paper-1-20261116144046.json", submittedRecord({
+      savedAt: "2026-11-16T14:41:54Z",
+      startedAt: "2026-11-16T14:40:46Z",
+      usedSeconds: 49,
+      items: [scoredItem("q1", false), scoredItem("q2", true)],
+      summary: { total: 2, scored: 2, correct: 1, accuracy: 0.5 },
+    }));
+    const answered = server.loadSessionById(root, "paper-1");
+    delete answered.submitted;
+    writeSession(root, "gongkao-session-paper-1-20261116144046.json", answered);
+
+    const blank = submittedRecord({
+      savedAt: "2026-11-16T15:06:38Z",
+      startedAt: "2026-11-16T14:51:36Z",
+      usedSeconds: 902,
+      items: [
+        { ...scoredItem("q1", false), userAnswer: "", correct: false },
+        { ...scoredItem("q2", false), userAnswer: "", correct: false },
+      ],
+      summary: { total: 2, scored: 2, correct: 0, accuracy: 0 },
+    });
+    delete blank.submitted;
+    writeSession(root, "gongkao-session-paper-1-20261116145136.json", blank);
+
+    const rec = server.loadSessionById(root, "paper-1");
+    assert.equal(rec.usedSeconds, 49);
+    assert.equal(rec.summary.correct, 1);
+    assert.equal((rec.items[0] || {}).userAnswer, "B");
+
+    const home = server.buildHome(root);
+    assert.ok(home);
+    assert.equal(home.papers[0].correct, 1);
+    const map = server.buildMap(root);
+    assert.equal(map.summary.sessionCount, 1);
+    assert.equal(map.summary.attemptCount, 2);
+  });
+
+  it("does not let a draft overwrite a submitted record", () => {
+    writeSession(root, "gongkao-session-paper-1-old.json", submittedRecord({
+      savedAt: "2026-11-16T11:00:00Z",
+      submitted: true,
+    }));
+    const dest = server.resolveSessionWritePath(root, { sessionId: "paper-1", submitted: false });
+    assert.equal(path.basename(dest), "gongkao-session-paper-1-draft.json");
+  });
+
   it("overwrites an existing same-sessionId file instead of creating another", () => {
     writeSession(root, "gongkao-session-paper-1-old.json", submittedRecord({
       savedAt: "2026-11-16T11:00:00Z",
