@@ -76,6 +76,16 @@
     .type .n { font-size: 12px; color: var(--muted); }
     .detail-title { margin: 8px 0 14px; font-size: 16px; }
     .empty { color: var(--muted); }
+    .table-wrap { overflow-x: auto; }
+    table.cat { width: 100%; border-collapse: collapse; font-size: 13px; }
+    table.cat th, table.cat td { padding: 8px 8px; text-align: right; border-bottom: 1px solid var(--line); white-space: nowrap; }
+    table.cat th:first-child, table.cat td:first-child { text-align: left; }
+    table.cat th { color: var(--muted); font-weight: 600; font-size: 12px; }
+    table.cat tr.clickable { cursor: pointer; }
+    table.cat tr.clickable:hover { background: var(--accent-soft); }
+    .stat.good .n { color: var(--ok); }
+    .stat.bad .n { color: var(--bad); }
+    .muted { color: var(--muted); }
   </style>
 </head>
 <body>
@@ -89,6 +99,10 @@
       <span class="tag lv-掌握">掌握</span>
     </div>
     <div class="score" id="score"></div>
+    <section class="card" style="margin-bottom:16px;">
+      <h2>分类对错</h2>
+      <div class="table-wrap" id="cats"></div>
+    </section>
     <div class="overview">
       <section class="card">
         <h2>模块雷达</h2>
@@ -111,7 +125,14 @@
 
     function accText(row) {
       if (!row.total) return "还没做";
-      return Math.round(row.accuracy * 100) + "% · " + row.correct + "/" + row.total;
+      return Math.round(row.accuracy * 100) + "% · 对 " + row.correct + " · 错 " + (row.wrong != null ? row.wrong : Math.max((row.total || 0) - (row.correct || 0), 0));
+    }
+    function masteryText(row) {
+      const bits = [];
+      if (row.everWrong) bits.push("曾错过 " + row.everWrong + " 道");
+      if (row.masteredAfterWrong) bits.push("已掌握错题 " + row.masteredAfterWrong + " 道");
+      if (row.cuotiCount) bits.push("待复习 " + row.cuotiCount + " 道");
+      return bits.join(" · ");
     }
     function score(row) {
       if (!row.total) return 0;
@@ -120,7 +141,9 @@
     }
     function hintText(title, row, extra) {
       const bits = [accText(row), row.level];
-      if (row.cuotiCount) bits.push("待复习错题 " + row.cuotiCount + " 道");
+      const mastered = masteryText(row);
+      if (mastered) bits.push(mastered);
+      if (row.uniqueCount) bits.push("共 " + row.uniqueCount + " 道不同的题");
       if (extra) bits.push(extra);
       return "<strong>" + title + "</strong>　" + bits.join(" · ");
     }
@@ -201,11 +224,37 @@
       mapData = data || { modules: [] };
       const summary = data.summary || {};
       document.getElementById("meta").textContent =
-        "更新于 " + (data.updatedAt || "—") + " · 已练 " + (summary.practicedTypes || 0) + " 个题型 · 待复习错题 " + (summary.cuotiCount || 0) + " 道";
+        "更新于 " + (data.updatedAt || "—") + " · 共 " + (summary.uniqueCount || 0) + " 道不同的题 · 已练 " + (summary.practicedTypes || 0) + " 个题型 · 练过 " + (summary.sessionCount || 0) + " 场";
       const counts = summary.byLevel || {};
-      document.getElementById("score").innerHTML = LEVELS.map(lv =>
-        `<div class="stat"><div class="n">${counts[lv] || 0}</div><div class="l">${lv}题型</div></div>`
-      ).join("");
+      const levelLine = LEVELS.map(lv => lv + " " + (counts[lv] || 0)).join(" · ");
+      document.getElementById("score").innerHTML = [
+        ["作答题次", summary.attemptCount || 0, ""],
+        ["答对", summary.correctCount || 0, "good"],
+        ["答错", summary.wrongCount || 0, "bad"],
+        ["曾错过的题", summary.everWrong || 0, ""],
+        ["错题已掌握", summary.masteredAfterWrong || 0, "good"],
+        ["仍待复习", summary.cuotiCount || 0, "bad"]
+      ].map(([label, n, cls]) =>
+        `<div class="stat ${cls}"><div class="n">${n}</div><div class="l">${label}</div></div>`
+      ).join("") + `<div class="stat"><div class="n" style="font-size:13px;line-height:1.35;font-weight:600;padding-top:4px;">${levelLine}</div><div class="l">题型等级分布</div></div>`;
+      const practiced = (data.modules || []).filter(m => m.total);
+      document.getElementById("cats").innerHTML = practiced.length ? `
+        <table class="cat">
+          <thead><tr>
+            <th>类别</th><th>作答题次</th><th>答对</th><th>答错</th><th>正确率</th><th>曾错过</th><th>错题已掌握</th><th>待复习</th>
+          </tr></thead>
+          <tbody>
+            ${practiced.map((m, i) => {
+              const idx = (data.modules || []).indexOf(m);
+              const acc = m.total ? Math.round(m.accuracy * 100) + "%" : "—";
+              return `<tr class="clickable" data-mod="${idx}"><td>${m.name}</td><td>${m.total}</td><td>${m.correct}</td><td>${m.wrong || 0}</td><td>${acc}</td><td>${m.everWrong || 0}</td><td>${m.masteredAfterWrong || 0}</td><td>${m.cuotiCount || 0}</td></tr>`;
+            }).join("")}
+          </tbody>
+        </table>` : `<p class="empty">还没有作答记录，做完题并交卷后，这里会显示各类对错和错题掌握情况。</p>`;
+      document.getElementById("cats").onclick = (e) => {
+        const tr = e.target.closest("tr[data-mod]");
+        if (tr) showModule(Number(tr.dataset.mod));
+      };
       drawRadar(data.modules || []);
       drawHeat(data.modules || []);
       document.getElementById("heat").onclick = (e) => {
@@ -217,7 +266,7 @@
       document.getElementById("mods").innerHTML = (data.modules || []).map((mod, i) => {
         const width = Math.round((mod.accuracy || 0) * 100);
         const types = (mod.types || []).map(t =>
-          `<div class="type"><span class="name">${t.name}</span><span class="n">${accText(t)}${t.cuotiCount ? " · 错题 " + t.cuotiCount : ""}</span><span class="tag lv-${t.level}">${t.level}</span></div>`
+          `<div class="type"><span class="name">${t.name}</span><span class="n">${accText(t)}${masteryText(t) ? " · " + masteryText(t) : ""}</span><span class="tag lv-${t.level}">${t.level}</span></div>`
         ).join("");
         return `<section class="mod" id="mod-${i}">
           <div class="mod-h">

@@ -277,15 +277,30 @@ def load_json(path: Path, default):
     return data if isinstance(data, dict) else default
 
 
+def is_mastered(attempts: list[dict]) -> bool:
+    scored = [a for a in attempts if a.get("correct") is not None]
+    return len(scored) >= 2 and bool(scored[-1]["correct"]) and bool(scored[-2]["correct"])
+
+
 def build_map(root: Path) -> dict:
     progress, cuoti = persist_progress(root)
     stats: dict[tuple[str, str], dict] = {}
+    history: dict[str, list[dict]] = {}
 
     def ensure(module: str, typ: str) -> dict:
         key = (module, typ)
         row = stats.get(key)
         if row is None:
-            row = {"module": module, "type": typ, "total": 0, "correct": 0, "cuotiCount": 0}
+            row = {
+                "module": module,
+                "type": typ,
+                "total": 0,
+                "correct": 0,
+                "cuotiCount": 0,
+                "uniqueCount": 0,
+                "everWrong": 0,
+                "masteredAfterWrong": 0,
+            }
             stats[key] = row
         return row
 
@@ -294,6 +309,7 @@ def build_map(root: Path) -> dict:
             ensure(name, typ)
 
     for path, rec in load_sessions(root):
+        saved_at = rec.get("savedAt") or ""
         for item in rec.get("items") or []:
             if item.get("correct") is None:
                 continue
@@ -303,11 +319,48 @@ def build_map(root: Path) -> dict:
             row["total"] += 1
             if item.get("correct"):
                 row["correct"] += 1
+            qid = str(item.get("id") or "")
+            if not qid:
+                continue
+            history.setdefault(qid, []).append({
+                "correct": item.get("correct"),
+                "module": module,
+                "type": typ,
+                "savedAt": saved_at,
+            })
+
+    for qid, attempts in history.items():
+        last = attempts[-1]
+        row = ensure(last["module"], last["type"])
+        row["uniqueCount"] += 1
+        if any(a.get("correct") is False for a in attempts):
+            row["everWrong"] += 1
+            if is_mastered(attempts):
+                row["masteredAfterWrong"] += 1
 
     for item in (cuoti.get("items") or []):
         module = canon_module(item.get("module") or "")
         typ = canon_type(item.get("type") or "", module)
         ensure(module, typ)["cuotiCount"] += 1
+
+    def pack_row(name: str, total: int, correct: int, unique: int, ever_wrong: int, mastered: int, cuoti_count: int, types=None):
+        wrong = max(total - correct, 0)
+        accuracy = (correct / total) if total else 0
+        payload = {
+            "name": name,
+            "total": total,
+            "correct": correct,
+            "wrong": wrong,
+            "accuracy": round(accuracy, 3),
+            "uniqueCount": unique,
+            "everWrong": ever_wrong,
+            "masteredAfterWrong": mastered,
+            "cuotiCount": cuoti_count,
+            "level": mastery_level(total, correct, cuoti_count),
+        }
+        if types is not None:
+            payload["types"] = types
+        return payload
 
     modules: list[dict] = []
     seen_modules = {name for name, _ in TAXONOMY}
@@ -323,43 +376,42 @@ def build_map(root: Path) -> dict:
         type_names = module_types(module)
         extras = [typ for (mod, typ) in stats if mod == module and typ not in type_names]
         type_rows = []
-        m_total = m_correct = m_cuoti = 0
+        m_total = m_correct = m_cuoti = m_unique = m_ever = m_mastered = 0
         for typ in type_names + extras:
-            row = stats.get((module, typ), {"total": 0, "correct": 0, "cuotiCount": 0})
-            total = int(row.get("total") or 0)
-            correct = int(row.get("correct") or 0)
-            cuoti_count = int(row.get("cuotiCount") or 0)
-            accuracy = (correct / total) if total else 0
-            level = mastery_level(total, correct, cuoti_count)
-            level_counts[level] = level_counts.get(level, 0) + 1
-            if total:
+            row = stats.get((module, typ), {})
+            packed = pack_row(
+                typ,
+                int(row.get("total") or 0),
+                int(row.get("correct") or 0),
+                int(row.get("uniqueCount") or 0),
+                int(row.get("everWrong") or 0),
+                int(row.get("masteredAfterWrong") or 0),
+                int(row.get("cuotiCount") or 0),
+            )
+            level_counts[packed["level"]] = level_counts.get(packed["level"], 0) + 1
+            if packed["total"]:
                 practiced_types += 1
-            m_total += total
-            m_correct += correct
-            m_cuoti += cuoti_count
-            type_rows.append({
-                "name": typ,
-                "total": total,
-                "correct": correct,
-                "accuracy": round(accuracy, 3),
-                "cuotiCount": cuoti_count,
-                "level": level,
-            })
-        m_acc = (m_correct / m_total) if m_total else 0
-        modules.append({
-            "name": module,
-            "total": m_total,
-            "correct": m_correct,
-            "accuracy": round(m_acc, 3),
-            "cuotiCount": m_cuoti,
-            "level": mastery_level(m_total, m_correct, m_cuoti),
-            "types": type_rows,
-        })
+            m_total += packed["total"]
+            m_correct += packed["correct"]
+            m_cuoti += packed["cuotiCount"]
+            m_unique += packed["uniqueCount"]
+            m_ever += packed["everWrong"]
+            m_mastered += packed["masteredAfterWrong"]
+            type_rows.append(packed)
+        modules.append(pack_row(module, m_total, m_correct, m_unique, m_ever, m_mastered, m_cuoti, type_rows))
 
+    attempt_total = sum(m["total"] for m in modules)
+    correct_total = sum(m["correct"] for m in modules)
     return {
         "updatedAt": progress.get("updatedAt") or now_iso(),
         "summary": {
             "sessionCount": len(progress.get("sessions") or []),
+            "attemptCount": attempt_total,
+            "correctCount": correct_total,
+            "wrongCount": max(attempt_total - correct_total, 0),
+            "uniqueCount": len(history),
+            "everWrong": sum(m["everWrong"] for m in modules),
+            "masteredAfterWrong": sum(m["masteredAfterWrong"] for m in modules),
             "practicedTypes": practiced_types,
             "cuotiCount": len(cuoti.get("items") or []),
             "byLevel": level_counts,
