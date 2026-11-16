@@ -64,7 +64,7 @@
 
 ```
 文档/公考练习记录/
-├── gongkao-server.py        # 本机记录服务（可选，推荐）
+├── gongkao-server.js        # 本机记录服务（可选，推荐）
 ├── 启动记录服务.command      # macOS 双击启动
 ├── progress.json            # 总进度与题型正确率
 ├── cuoti.json               # 待复习错题
@@ -264,7 +264,7 @@ huasheng13-skill/
 │   ├── practice.html          #   交互练习页模板（自包含，无外部 CDN）
 │   └── map.html               #   能力地图页面
 ├── tools/
-│   ├── gongkao-server.py      #   本机记录服务（只监听 127.0.0.1）
+│   ├── gongkao-server.js      #   本机记录服务（只监听 127.0.0.1）
 │   ├── map.html               #   能力地图页面
 │   ├── 启动记录服务.command    #   macOS 备用启动脚本
 │   └── 启动记录服务.bat        #   Windows 备用启动脚本
