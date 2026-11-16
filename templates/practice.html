@@ -44,6 +44,9 @@
     }
     .chip strong { color: var(--ink); font-weight: 600; }
     .chip.warn { color: var(--warn); }
+    .chip.ok { color: var(--ok); }
+    .chip.bad { color: var(--bad); }
+    .save-msg { font-size: 13px; color: var(--muted); min-height: 1.2em; }
     .layout { display: grid; grid-template-columns: 72px 1fr; gap: 16px; }
     @media (max-width: 720px) { .layout { grid-template-columns: 1fr; } .nav { display: flex; flex-wrap: wrap; } }
     .nav { display: flex; flex-direction: column; gap: 6px; }
@@ -117,6 +120,7 @@
       <div class="hud">
         <div class="chip" id="progress">0 / 0</div>
         <div class="chip" id="timer">--:--</div>
+        <div class="chip" id="api-status">记录服务检测中</div>
       </div>
     </header>
     <section id="report" class="hidden"></section>
@@ -136,8 +140,9 @@
         <button class="btn ghost" id="flag" type="button">标记</button>
       </div>
       <div class="actions">
+        <span class="save-msg" id="save-msg"></span>
         <button class="btn" id="copy" type="button">复制作答记录</button>
-        <button class="btn" id="save" type="button">保存作答</button>
+        <button class="btn" id="save" type="button">手动保存</button>
         <button class="btn primary" id="submit" type="button">交卷</button>
       </div>
     </div>
@@ -247,7 +252,10 @@
           id: q.id,
           module: q.module || "",
           type: q.type || "",
+          kind: q.kind || (q.options && q.options.length ? "choice" : "essay"),
           stem: q.stem || "",
+          options: q.options || [],
+          analysis: q.analysis || "",
           source: q.source || "",
           userAnswer,
           correctAnswer: q.answer || "",
@@ -269,6 +277,7 @@
       };
       return {
         savedAt: new Date().toISOString(),
+        startedAt: new Date(state.startedAt).toISOString(),
         sessionId: session.id,
         title: session.title,
         mode: session.mode,
@@ -304,29 +313,89 @@
         <div class="score">${rows}</div>`;
     }
 
-    async function saveFile() {
-      const rec = record();
-      const name = `gongkao-session-${(session.id || "practice").replace(/[^\w\-]+/g, "")}-${new Date().toISOString().slice(0,19).replace(/[:T]/g, "")}.json`;
-      const blob = new Blob([JSON.stringify(rec, null, 2)], { type: "application/json" });
-      if (window.showSaveFilePicker) {
-        try {
-          const handle = await window.showSaveFilePicker({
-            suggestedName: name,
-            types: [{ description: "JSON", accept: { "application/json": [".json"] } }]
-          });
-          const writable = await handle.createWritable();
-          await writable.write(blob);
-          await writable.close();
-          return;
-        } catch (err) {
-          if (err && err.name === "AbortError") return;
-        }
+    const API = window.GONGKAO_API || "http://127.0.0.1:17813";
+    let apiOk = false;
+
+    function fileName() {
+      const sid = String(session.id || "practice").replace(/[^\w\-]+/g, "");
+      const ts = new Date(state.startedAt).toISOString().slice(0,19).replace(/[:T]/g, "");
+      return `gongkao-session-${sid}-${ts}.json`;
+    }
+
+    function setSaveMsg(text, ok) {
+      const el = $("save-msg");
+      el.textContent = text || "";
+      el.style.color = ok === true ? "var(--ok)" : (ok === false ? "var(--bad)" : "var(--muted)");
+    }
+
+    function updateApiChip() {
+      const el = $("api-status");
+      if (apiOk) {
+        el.textContent = "记录服务已连接";
+        el.classList.remove("bad");
+        el.classList.add("ok");
+      } else {
+        el.textContent = "记录服务未开";
+        el.classList.remove("ok");
+        el.classList.add("bad");
       }
+    }
+
+    async function pingApi() {
+      try {
+        const r = await fetch(API + "/api/health", { cache: "no-store" });
+        apiOk = r.ok;
+      } catch (err) {
+        apiOk = false;
+      }
+      updateApiChip();
+      return apiOk;
+    }
+
+    function downloadRecord() {
+      const rec = record();
+      const blob = new Blob([JSON.stringify(rec, null, 2)], { type: "application/json" });
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
-      a.download = name;
+      a.download = fileName();
       a.click();
       URL.revokeObjectURL(a.href);
+    }
+
+    async function saveToServer() {
+      const r = await fetch(API + "/api/sessions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(record())
+      });
+      if (!r.ok) throw new Error("bad status");
+      return r.json();
+    }
+
+    async function autoSave() {
+      try {
+        if (await pingApi()) {
+          const res = await saveToServer();
+          const file = (res && res.file) || "sessions/";
+          setSaveMsg("已自动保存到本机记录（" + file + "）", true);
+          return true;
+        }
+      } catch (err) {}
+      downloadRecord();
+      setSaveMsg("记录服务未开，已下载文件，请放到「公考练习记录/sessions/」", false);
+      return false;
+    }
+
+    async function saveFile() {
+      if (await pingApi()) {
+        try {
+          const res = await saveToServer();
+          setSaveMsg("已保存到本机记录（" + ((res && res.file) || "sessions/") + "）", true);
+          return;
+        } catch (err) {}
+      }
+      downloadRecord();
+      setSaveMsg("已下载作答记录，请放到「公考练习记录/sessions/」", false);
     }
 
     function copyRecord() {
@@ -337,12 +406,14 @@
       });
     }
 
-    function submit() {
+    async function submit() {
+      if (state.submitted) return;
       state.submitted = true;
       state.ticking = false;
       state.usedSeconds = Math.floor((Date.now() - state.startedAt) / 1000);
       renderReport();
       render();
+      await autoSave();
     }
 
     $("nav").addEventListener("click", e => {
@@ -394,6 +465,8 @@
       }
     }, 250);
 
+    pingApi();
+    setInterval(pingApi, 5000);
     if (session.mode === "report") renderReport();
     if (!qs.length) {
       $("question").innerHTML = "<p>这一份练习还没有题目。</p>";

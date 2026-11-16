@@ -24,7 +24,7 @@
 ---
 
 
-> 本仓库 fork 自 [WangJunqing-coder/huasheng13-skill](https://github.com/WangJunqing-coder/huasheng13-skill)。在保留原解题体系的基础上，增加了按需生成的交互 HTML 练习页，以及把作答记录保存到本地、供后续针对性练习的能力。
+> 本仓库 fork 自 [WangJunqing-coder/huasheng13-skill](https://github.com/WangJunqing-coder/huasheng13-skill)。在保留原解题体系的基础上，增加了按需生成的交互 HTML 练习页，以及本机记录服务（交卷自动保存）和针对性练习。
 
 ## 快速开始
 
@@ -57,17 +57,27 @@
 
 - 可点选项、标记疑问、限时作答，到时或交卷后查看对错和解析
 - 支持键盘：A–D / 1–4 选题，左右方向键切题
-- 交卷后可「保存作答」或「复制作答记录」
+- 交卷后自动保存作答记录；也可以「手动保存」或「复制作答记录」
 
-作答建议保存到本机：
+作答保存在本机：
 
 ```
 文档/公考练习记录/
-├── progress.json      # 总进度与题型正确率
-├── cuoti.json         # 待复习错题
-├── sessions/          # 每场原始作答 JSON
-└── pages/             # 练习页副本
+├── gongkao-server.py        # 本机记录服务（可选，推荐）
+├── 启动记录服务.command      # macOS 双击启动
+├── progress.json            # 总进度与题型正确率
+├── cuoti.json               # 待复习错题
+├── sessions/                # 每场原始作答 JSON
+└── pages/                   # 练习页副本
 ```
+
+推荐先启动本机记录服务，再打开练习页。在终端执行：
+
+```bash
+python3 ~/Documents/公考练习记录/gongkao-server.py
+```
+
+或双击目录里的 `启动记录服务.command`（macOS）/ `启动记录服务.bat`（Windows）。服务只监听 `127.0.0.1:17813`，交卷会直接写入 `sessions/`，并更新进度和错题本。服务没开时，交卷会自动下载 JSON，把它放到 `sessions/` 即可。
 
 之后再练会先读这些记录：优先错题和正确率偏低的题型；同一道题连续做对两次，就从待复习里拿掉。
 
@@ -255,6 +265,10 @@ huasheng13-skill/
 ├── README.md                   # 本说明文件
 ├── templates/
 │   └── practice.html          #   交互练习页模板（自包含，无外部 CDN）
+├── tools/
+│   ├── gongkao-server.py      #   本机记录服务（只监听 127.0.0.1）
+│   ├── 启动记录服务.command    #   macOS 启动脚本
+│   └── 启动记录服务.bat        #   Windows 启动脚本
 ├── references/                 # 方法论库（20个文件）
 │   ├── ziliao-fenxi.md        #   资料分析全体系
 │   ├── ziliao-susuan.md       #   速算方法详解
