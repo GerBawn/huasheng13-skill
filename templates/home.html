@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>公考练习</title>
+  <style>
+    :root {
+      --bg: #f6f3ee;
+      --paper: #fffcf7;
+      --ink: #1f1b16;
+      --muted: #6b645b;
+      --line: #e6e0d6;
+      --accent: #2d4a6e;
+      --accent-soft: #e8eef6;
+      --ok: #2c6e4f;
+      --ok-soft: #e6f4ec;
+      --bad: #a33b32;
+      --bad-soft: #f8eaea;
+      --mid: #8a5a12;
+      --mid-soft: #f6eedf;
+      --idle: #8a857c;
+      --idle-soft: #eeebe6;
+      --shadow: 0 1px 2px rgba(31, 27, 22, .06), 0 8px 24px rgba(31, 27, 22, .05);
+      --radius: 14px;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; background: var(--bg); color: var(--ink); }
+    body { font: 16px/1.65 "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "Source Han Sans SC", system-ui, sans-serif; }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .app { max-width: 980px; margin: 0 auto; padding: 28px 20px 64px; }
+    h1 { margin: 0 0 6px; font-size: 22px; font-weight: 650; }
+    h2 { margin: 0 0 12px; font-size: 16px; font-weight: 650; }
+    .meta { color: var(--muted); font-size: 13px; margin-bottom: 16px; }
+    .tabs { display: flex; gap: 8px; flex-wrap: wrap; margin: 16px 0 18px; }
+    .tabs button {
+      border: 1px solid var(--line); background: var(--paper); border-radius: 999px;
+      padding: 7px 14px; color: var(--ink); cursor: pointer; font: inherit;
+    }
+    .tabs button.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .panel { display: none; }
+    .panel.active { display: block; }
+    .legend { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; align-items: center; }
+    .legend .label { font-size: 12px; color: var(--muted); margin-right: 4px; }
+    .tag { border-radius: 999px; padding: 4px 10px; font-size: 12px; }
+    .tag .count { font-weight: 650; margin-left: 4px; }
+    .lv-未练 { background: var(--idle-soft); color: var(--idle); }
+    .lv-薄弱 { background: var(--bad-soft); color: var(--bad); }
+    .lv-一般 { background: var(--mid-soft); color: var(--mid); }
+    .lv-掌握 { background: var(--ok-soft); color: var(--ok); }
+    .score { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 16px; }
+    @media (max-width: 860px) { .score { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+    @media (max-width: 520px) { .score { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+    .stat, .card, .mod { background: var(--paper); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); }
+    .stat { padding: 12px 14px; }
+    .stat .n { font-size: 24px; font-weight: 650; }
+    .stat .l { font-size: 12px; color: var(--muted); }
+    .stat.good .n { color: var(--ok); }
+    .stat.bad .n { color: var(--bad); }
+    .overview { display: grid; grid-template-columns: 420px 1fr; gap: 16px; margin-bottom: 22px; align-items: stretch; }
+    @media (max-width: 860px) { .overview { grid-template-columns: 1fr; } }
+    .card { padding: 16px 18px; margin-bottom: 16px; }
+    .radar-wrap { display: flex; justify-content: center; }
+    .radar-wrap svg { width: 100%; max-width: 400px; height: auto; }
+    .radar-label { cursor: pointer; }
+    .heat-row { display: grid; grid-template-columns: 76px 1fr; gap: 10px; align-items: start; margin-bottom: 10px; }
+    .heat-row .mod-name { font-size: 13px; padding-top: 6px; color: var(--ink); cursor: pointer; }
+    .heat-cells { display: flex; flex-wrap: wrap; gap: 6px; }
+    .cell { width: 28px; height: 28px; border-radius: 7px; border: 1px solid transparent; cursor: pointer; }
+    .cell.lv-未练 { background: var(--idle-soft); border-color: #ddd8d0; }
+    .cell.lv-薄弱 { background: #e7b3ae; border-color: #d28c86; }
+    .cell.lv-一般 { background: #e8d09a; border-color: #d0b06a; }
+    .cell.lv-掌握 { background: #9dcbaf; border-color: #6ea987; }
+    .cell.current { outline: 2px solid var(--accent); outline-offset: 1px; }
+    .hint { min-height: 44px; margin-top: 8px; padding: 10px 12px; border-radius: 10px; background: #fff; border: 1px dashed var(--line); color: var(--muted); font-size: 13px; }
+    .hint strong { color: var(--ink); font-weight: 650; }
+    .mod { padding: 16px 18px; margin-bottom: 12px; scroll-margin-top: 16px; }
+    .mod-h { display: flex; justify-content: space-between; gap: 12px; align-items: center; margin-bottom: 10px; }
+    .mod-h h2 { margin: 0; }
+    .bar { height: 8px; background: var(--idle-soft); border-radius: 99px; overflow: hidden; margin: 8px 0 12px; }
+    .bar > span { display: block; height: 100%; background: var(--accent); }
+    .types { display: grid; gap: 6px; }
+    .type { display: grid; grid-template-columns: 1fr auto auto; gap: 10px; align-items: center; padding: 8px 10px; border-radius: 10px; background: #fff; border: 1px solid var(--line); }
+    .type .name { font-size: 14px; }
+    .type .n { font-size: 12px; color: var(--muted); }
+    .detail-title { margin: 8px 0 14px; font-size: 16px; }
+    .empty { color: var(--muted); }
+    .table-wrap { overflow-x: auto; }
+    table.cat { width: 100%; border-collapse: collapse; font-size: 13px; }
+    table.cat th, table.cat td { padding: 8px 8px; text-align: right; border-bottom: 1px solid var(--line); white-space: nowrap; }
+    table.cat th:first-child, table.cat td:first-child, table.cat td.left { text-align: left; white-space: normal; }
+    table.cat th { color: var(--muted); font-weight: 600; font-size: 12px; }
+    table.cat tr.clickable { cursor: pointer; }
+    table.cat tr.clickable:hover { background: var(--accent-soft); }
+    .latest-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+    .btn { border: 1px solid var(--line); background: #fff; border-radius: 10px; padding: 8px 14px; color: var(--ink); cursor: pointer; font: inherit; }
+    .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .q-item { padding: 12px 0; border-bottom: 1px solid var(--line); }
+    .q-item .stem { margin: 4px 0 6px; }
+    .q-item .sub { color: var(--muted); font-size: 13px; }
+    .search { width: 100%; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin-bottom: 12px; font: inherit; background: #fff; }
+    .status { display: inline-block; border-radius: 999px; padding: 2px 8px; font-size: 12px; }
+    .status.done { background: var(--ok-soft); color: var(--ok); }
+    .status.open { background: var(--mid-soft); color: var(--mid); }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <h1>公考练习</h1>
+    <div class="meta" id="meta">正在读取记录…</div>
+    <nav class="tabs" id="tabs">
+      <button type="button" data-tab="latest" class="active">最近一次试卷</button>
+      <button type="button" data-tab="papers">历史试卷</button>
+      <button type="button" data-tab="questions">历史问题</button>
+      <button type="button" data-tab="map">能力地图</button>
+    </nav>
+
+    <section class="panel active" id="panel-latest"></section>
+    <section class="panel" id="panel-papers"></section>
+    <section class="panel" id="panel-questions"></section>
+    <section class="panel" id="panel-map">
+      <div class="legend" id="legend">
+        <span class="label">题型等级</span>
+        <span class="tag lv-未练">未练</span>
+        <span class="tag lv-薄弱">薄弱</span>
+        <span class="tag lv-一般">一般</span>
+        <span class="tag lv-掌握">掌握</span>
+      </div>
+      <div class="score" id="score"></div>
+      <section class="card">
+        <h2>分类对错</h2>
+        <div class="table-wrap" id="cats"></div>
+      </section>
+      <section class="card">
+        <h2>真题试卷</h2>
+        <div class="table-wrap" id="zhenti-papers"></div>
+      </section>
+      <div class="overview">
+        <section class="card">
+          <h2>模块雷达</h2>
+          <p class="meta" style="margin-top:-6px;">越靠外越熟练，中心是未练。</p>
+          <div class="radar-wrap" id="radar"></div>
+        </section>
+        <section class="card">
+          <h2>题型热力</h2>
+          <p class="meta" style="margin-top:-6px;">每个方块是一道题型，点一下看详情。</p>
+          <div id="heat"></div>
+          <div class="hint" id="hint">点雷达轴或热力块，查看这个模块或题型的正确率和错题数。</div>
+        </section>
+      </div>
+      <h2 class="detail-title">分模块明细</h2>
+      <div id="mods"></div>
+    </section>
+  </div>
+  <script>
+    const LEVELS = ["未练", "薄弱", "一般", "掌握"];
+    const TABS = ["latest", "papers", "questions", "map"];
+
+    function $(id) { return document.getElementById(id); }
+    function escapeHtml(text) {
+      return String(text || "")
+        .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    }
+    function fmtTime(iso) {
+      if (!iso) return "—";
+      const d = new Date(iso);
+      if (Number.isNaN(d.getTime())) return iso;
+      return d.toLocaleString("zh-CN", { hour12: false, timeZone: "Asia/Shanghai" });
+    }
+    function accText(row) {
+      if (!row.total) return "还没做";
+      return Math.round(row.accuracy * 100) + "% · 对 " + row.correct + " · 错 " + (row.wrong != null ? row.wrong : Math.max((row.total || 0) - (row.correct || 0), 0));
+    }
+    function masteryText(row) {
+      const bits = [];
+      if (row.everWrong) bits.push("曾错过 " + row.everWrong + " 道");
+      if (row.masteredAfterWrong) bits.push("已掌握错题 " + row.masteredAfterWrong + " 道");
+      if (row.cuotiCount) bits.push("待复习 " + row.cuotiCount + " 道");
+      return bits.join(" · ");
+    }
+    function scoreOf(row) {
+      if (!row.total) return 0;
+      if (row.level === "掌握") return Math.max(row.accuracy || 0, 0.8);
+      return Math.max(0, Math.min(1, row.accuracy || 0));
+    }
+    function hintText(title, row, extra) {
+      const bits = [accText(row), row.level];
+      const mastered = masteryText(row);
+      if (mastered) bits.push(mastered);
+      if (row.uniqueCount) bits.push("共 " + row.uniqueCount + " 道不同的题");
+      if (extra) bits.push(extra);
+      return "<strong>" + escapeHtml(title) + "</strong>　" + bits.join(" · ");
+    }
+    function pageHref(page) {
+      if (!page) return "";
+      if (/^https?:/i.test(page)) return page;
+      return page.startsWith("/") ? page : "/pages/" + page.replace(/^pages\//, "");
+    }
+
+    function showTab(name) {
+      const tab = TABS.includes(name) ? name : "latest";
+      document.querySelectorAll(".tabs button").forEach(btn => btn.classList.toggle("active", btn.dataset.tab === tab));
+      TABS.forEach(id => $("panel-" + id).classList.toggle("active", id === tab));
+      const hash = "#" + tab;
+      if (location.hash !== hash) history.replaceState(null, "", hash);
+    }
+
+    function paperRowHtml(p) {
+      const acc = p.submitted && p.accuracy != null ? Math.round(p.accuracy * 100) + "%" : "未交卷";
+      const href = pageHref(p.page);
+      const title = href ? `<a href="${escapeHtml(href)}">${escapeHtml(p.title || p.paper || "未命名试卷")}</a>` : escapeHtml(p.title || p.paper || "未命名试卷");
+      const status = p.submitted
+        ? `<span class="status done">已交卷</span>`
+        : `<span class="status open">未交卷</span>`;
+      return `<tr>
+        <td class="left">${title}<div class="sub">${escapeHtml(p.paper && p.paper !== p.title ? p.paper : "")}</div></td>
+        <td>${escapeHtml(p.year || "—")}</td>
+        <td>${escapeHtml(p.region || "—")}</td>
+        <td>${p.questionCount || p.total || 0}</td>
+        <td>${status} ${acc}</td>
+        <td>${escapeHtml(fmtTime(p.submittedAt || p.createdAt))}</td>
+      </tr>`;
+    }
+
+    function renderLatest(home) {
+      const p = home.latest;
+      if (!p) {
+        $("panel-latest").innerHTML = `<section class="card"><p class="empty">还没有出过题。用真题模式或练习出一套题后，最近一次试卷会出现在这里。</p></section>`;
+        return;
+      }
+      const href = pageHref(p.page);
+      const acc = p.submitted && p.accuracy != null ? Math.round(p.accuracy * 100) + "%" : "还未交卷";
+      $("panel-latest").innerHTML = `
+        <section class="card">
+          <h2>${escapeHtml(p.title || p.paper || "最近一次试卷")}</h2>
+          <p class="meta">${[p.paper && p.paper !== p.title ? p.paper : "", p.year, p.region, p.isZhenti ? "真题" : "", p.mode || ""].filter(Boolean).join(" · ")}</p>
+          <div class="score" style="grid-template-columns: repeat(3, minmax(0, 1fr));">
+            <div class="stat"><div class="n">${p.questionCount || p.total || 0}</div><div class="l">题目数</div></div>
+            <div class="stat"><div class="n">${acc}</div><div class="l">正确率</div></div>
+            <div class="stat"><div class="n">${p.submitted ? (p.correct || 0) + " / " + (p.scored || p.questionCount || 0) : "—"}</div><div class="l">答对</div></div>
+          </div>
+          <p class="meta">出题时间 ${fmtTime(p.createdAt)}${p.submittedAt ? " · 交卷时间 " + fmtTime(p.submittedAt) : " · 尚未交卷"}</p>
+          <div class="latest-actions">
+            ${href ? `<a class="btn primary" href="${escapeHtml(href)}">${p.submitted ? "查看这份试卷" : "继续作答"}</a>` : ""}
+            <button class="btn" type="button" data-go="papers">查看历史试卷</button>
+            <button class="btn" type="button" data-go="map">打开能力地图</button>
+          </div>
+        </section>`;
+    }
+
+    function renderPapers(home) {
+      const papers = home.papers || [];
+      $("panel-papers").innerHTML = papers.length ? `
+        <section class="card">
+          <h2>历史试卷</h2>
+          <div class="table-wrap">
+            <table class="cat">
+              <thead><tr><th>试卷</th><th>年份</th><th>地区</th><th>题数</th><th>状态</th><th>时间</th></tr></thead>
+              <tbody>${papers.map(paperRowHtml).join("")}</tbody>
+            </table>
+          </div>
+        </section>` : `<section class="card"><p class="empty">还没有历史试卷。</p></section>`;
+    }
+
+    function renderQuestions(home) {
+      const items = home.questions || [];
+      $("panel-questions").innerHTML = `
+        <section class="card">
+          <h2>历史问题</h2>
+          <input class="search" id="q-search" placeholder="搜索题干、试卷或题型" />
+          <div id="q-list"></div>
+        </section>`;
+      const box = $("q-list");
+      function paint(filter) {
+        const key = (filter || "").trim();
+        const rows = items.filter(q => {
+          if (!key) return true;
+          const blob = [q.stem, q.paper, q.module, q.type, q.qid, q.kind].join(" ");
+          return blob.includes(key);
+        });
+        if (!rows.length) {
+          box.innerHTML = `<p class="empty">${items.length ? "没有匹配的问题。" : "还没有历史问题。出题或讲解后会记录在这里。"}</p>`;
+          return;
+        }
+        box.innerHTML = rows.map(q => {
+          const result = q.kind === "explain" ? "讲解" : (q.correct == null ? "未评分" : (q.correct ? "答对" : "答错"));
+          const source = [q.paper, q.module, q.questionNo ? "第 " + q.questionNo + " 题" : "", q.type].filter(Boolean).join(" · ");
+          return `<div class="q-item">
+            <div class="sub">${escapeHtml(result)} · ${escapeHtml(fmtTime(q.at))}${source ? " · " + escapeHtml(source) : ""}</div>
+            <div class="stem">${escapeHtml(q.stem || "（无题干）")}</div>
+          </div>`;
+        }).join("");
+      }
+      paint("");
+      $("q-search").addEventListener("input", e => paint(e.target.value));
+    }
+
+    function polar(cx, cy, r, i, n) {
+      const a = -Math.PI / 2 + (Math.PI * 2 * i) / n;
+      return [cx + r * Math.cos(a), cy + r * Math.sin(a)];
+    }
+    function drawRadar(modules) {
+      const n = modules.length || 1;
+      const size = 420, cx = 210, cy = 210, r = 126;
+      const grid = [0.25, 0.5, 0.75, 1];
+      let svg = `<svg viewBox="0 0 ${size} ${size}" role="img" aria-label="模块掌握度雷达图">`;
+      grid.forEach(g => {
+        const pts = modules.map((_, i) => polar(cx, cy, r * g, i, n).join(",")).join(" ");
+        svg += `<polygon points="${pts}" fill="none" stroke="#e6e0d6" stroke-width="1"/>`;
+      });
+      modules.forEach((_, i) => {
+        const [x, y] = polar(cx, cy, r, i, n);
+        svg += `<line x1="${cx}" y1="${cy}" x2="${x}" y2="${y}" stroke="#e6e0d6" stroke-width="1"/>`;
+      });
+      const dataPts = modules.map((m, i) => polar(cx, cy, r * scoreOf(m), i, n).join(",")).join(" ");
+      svg += `<polygon points="${dataPts}" fill="rgba(45,74,110,.18)" stroke="#2d4a6e" stroke-width="2"/>`;
+      modules.forEach((m, i) => {
+        const [x, y] = polar(cx, cy, r + 28, i, n);
+        svg += `<text class="radar-label" data-mod="${i}" x="${x}" y="${y}" text-anchor="middle" dominant-baseline="middle" font-size="13" fill="#1f1b16">${m.name}</text>`;
+      });
+      svg += "</svg>";
+      $("radar").innerHTML = svg;
+    }
+
+    function renderMap(data) {
+      const summary = data.summary || {};
+      $("legend").innerHTML = '<span class="label">题型等级</span>' +
+        LEVELS.map(lv => `<span class="tag lv-${lv}">${lv}<span class="count">${(summary.byLevel || {})[lv] || 0}</span></span>`).join("");
+      $("score").innerHTML = [
+        ["作答题次", summary.attemptCount || 0, ""],
+        ["答对", summary.correctCount || 0, "good"],
+        ["答错", summary.wrongCount || 0, "bad"],
+        ["真题题次", summary.zhentiAttemptCount || 0, ""],
+        ["真题道数", summary.zhentiUniqueCount || 0, ""],
+        ["曾错过的题", summary.everWrong || 0, ""],
+        ["错题已掌握", summary.masteredAfterWrong || 0, "good"],
+        ["仍待复习", summary.cuotiCount || 0, "bad"]
+      ].map(([label, n, cls]) => `<div class="stat ${cls}"><div class="n">${n}</div><div class="l">${label}</div></div>`).join("");
+
+      const practiced = (data.modules || []).filter(m => m.total);
+      $("cats").innerHTML = practiced.length ? `
+        <table class="cat"><thead><tr>
+          <th>类别</th><th>作答题次</th><th>答对</th><th>答错</th><th>正确率</th><th>曾错过</th><th>错题已掌握</th><th>待复习</th>
+        </tr></thead><tbody>
+          ${practiced.map((m) => {
+            const idx = (data.modules || []).indexOf(m);
+            const acc = m.total ? Math.round(m.accuracy * 100) + "%" : "—";
+            return `<tr class="clickable" data-mod="${idx}"><td>${escapeHtml(m.name)}</td><td>${m.total}</td><td>${m.correct}</td><td>${m.wrong || 0}</td><td>${acc}</td><td>${m.everWrong || 0}</td><td>${m.masteredAfterWrong || 0}</td><td>${m.cuotiCount || 0}</td></tr>`;
+          }).join("")}
+        </tbody></table>` : `<p class="empty">还没有作答记录，做完题并交卷后，这里会显示各类对错和错题掌握情况。</p>`;
+
+      const papers = data.papers || [];
+      $("zhenti-papers").innerHTML = papers.length ? `
+        <table class="cat"><thead><tr>
+          <th>试卷</th><th>年份</th><th>地区</th><th>作答题次</th><th>答对</th><th>答错</th><th>正确率</th><th>不同的题</th>
+        </tr></thead><tbody>
+          ${papers.map(p => `<tr><td class="left">${escapeHtml(p.name)}</td><td>${escapeHtml(p.year || "—")}</td><td>${escapeHtml(p.region || "—")}</td><td>${p.total}</td><td>${p.correct}</td><td>${p.wrong || 0}</td><td>${p.total ? Math.round(p.accuracy * 100) + "%" : "—"}</td><td>${p.uniqueCount || 0}</td></tr>`).join("")}
+        </tbody></table>` : `<p class="empty">还没有真题作答记录。用真题模式做完并交卷后，这里会列出做过的试卷。</p>`;
+
+      drawRadar(data.modules || []);
+      $("heat").innerHTML = (data.modules || []).map((mod, mi) => `
+        <div class="heat-row">
+          <div class="mod-name" data-mod="${mi}">${escapeHtml(mod.name)}</div>
+          <div class="heat-cells">${(mod.types || []).map((t, ti) =>
+            `<div class="cell lv-${t.level}" data-mod="${mi}" data-type="${ti}" title="${escapeHtml(t.name)}"></div>`
+          ).join("")}</div>
+        </div>`).join("");
+
+      $("mods").innerHTML = (data.modules || []).map((mod, mi) => {
+        const acc = mod.total ? Math.round(mod.accuracy * 100) : 0;
+        const types = (mod.types || []).map(t =>
+          `<div class="type"><span class="name">${escapeHtml(t.name)}</span><span class="n">${accText(t)}${masteryText(t) ? " · " + masteryText(t) : ""}</span><span class="tag lv-${t.level}">${t.level}</span></div>`
+        ).join("");
+        return `<section class="mod" id="mod-${mi}">
+          <div class="mod-h"><h2>${escapeHtml(mod.name)}</h2><span class="tag lv-${mod.level}">${mod.level}</span></div>
+          <div class="bar"><span style="width:${acc}%"></span></div>
+          <div class="types">${types}</div>
+        </section>`;
+      }).join("");
+
+      $("cats").onclick = (e) => {
+        const tr = e.target.closest("tr[data-mod]");
+        if (tr) showModule(Number(tr.dataset.mod));
+      };
+      $("radar").onclick = (e) => {
+        const label = e.target.closest("[data-mod]");
+        if (label) showModule(Number(label.dataset.mod));
+      };
+      $("heat").onclick = (e) => {
+        const cell = e.target.closest("[data-type]");
+        const name = e.target.closest(".mod-name");
+        if (cell) {
+          const mod = (data.modules || [])[Number(cell.dataset.mod)];
+          const typ = mod && (mod.types || [])[Number(cell.dataset.type)];
+          if (typ) $("hint").innerHTML = hintText((mod.name || "") + " · " + typ.name, typ);
+          document.querySelectorAll(".cell").forEach(c => c.classList.toggle("current", c === cell));
+        } else if (name) showModule(Number(name.dataset.mod));
+      };
+    }
+
+    function showModule(i) {
+      const el = $("mod-" + i);
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+
+    $("tabs").addEventListener("click", (e) => {
+      const btn = e.target.closest("button[data-tab]");
+      if (btn) showTab(btn.dataset.tab);
+    });
+    document.body.addEventListener("click", (e) => {
+      const go = e.target.closest("[data-go]");
+      if (go) showTab(go.dataset.go);
+    });
+    window.addEventListener("hashchange", () => showTab(location.hash.slice(1)));
+
+    async function load() {
+      try {
+        const [homeRes, mapRes] = await Promise.all([
+          fetch("/api/home"),
+          fetch("/api/map")
+        ]);
+        const homeBody = await homeRes.json();
+        const mapBody = await mapRes.json();
+        const home = homeBody.home || {};
+        const map = mapBody.map || {};
+        $("meta").textContent = "更新于 " + (map.updatedAt || home.updatedAt || "—") +
+          " · 历史试卷 " + (home.papers || []).length + " 套 · 历史问题 " + (home.questions || []).length + " 道";
+        renderLatest(home);
+        renderPapers(home);
+        renderQuestions(home);
+        renderMap(map);
+        const start = new URLSearchParams(location.search).get("tab") || location.hash.slice(1) ||
+          (location.pathname.startsWith("/map") ? "map" : "latest");
+        showTab(start);
+      } catch (err) {
+        $("meta").textContent = "读取记录失败，请确认本机记录服务已启动。";
+      }
+    }
+    load();
+  </script>
+</body>
+</html>

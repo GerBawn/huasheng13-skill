@@ -11,9 +11,10 @@ const DEFAULT_PORT = 17813;
 const MAX_BODY = 2 * 1024 * 1024;
 
 const TAXONOMY = [
+  ["政治理论", ["新思想", "时事政治", "马克思主义", "毛中特"]],
   ["常识判断", ["政治", "经济", "法律", "人文历史", "科技生活", "地理国情"]],
   ["言语理解", ["逻辑填空", "中心理解", "细节判断", "标题填入", "语句排序", "语句填空", "接语理解"]],
-  ["数量关系", ["工程问题", "行程问题", "利润问题", "排列组合", "概率", "容斥", "最值问题", "几何问题", "年龄问题", "比例问题"]],
+  ["数量关系", ["工程问题", "行程问题", "利润问题", "排列组合", "概率", "容斥", "最值问题", "几何问题", "年龄问题", "比例问题", "数学运算"]],
   ["判断推理", ["图形推理", "定义判断", "类比推理", "翻译推理", "加强削弱", "前提假设", "真假推理", "日常结论"]],
   ["资料分析", ["增长量", "增长率", "比重", "两期比重", "平均数", "平均数增长量", "基期平均数", "倍数", "综合分析"]],
   ["申论", ["归纳概括", "综合分析", "提出对策", "贯彻执行", "申发论述"]],
@@ -31,6 +32,8 @@ const MODULE_ALIASES = {
   常识: "常识判断",
   常识判断: "常识判断",
   申论: "申论",
+  政治理论: "政治理论",
+  "言语理解与表达": "言语理解",
 };
 
 const TYPE_ALIASES = {
@@ -66,8 +69,9 @@ function dataDir() {
 }
 
 function ensureDirs(root) {
-  fs.mkdirSync(path.join(root, "sessions"), { recursive: true });
-  fs.mkdirSync(path.join(root, "pages"), { recursive: true });
+  for (const dir of ["sessions", "pages", "assignments", "qa"]) {
+    fs.mkdirSync(path.join(root, dir), { recursive: true });
+  }
 }
 
 function nowIso() {
@@ -417,6 +421,44 @@ function buildMap(root) {
 
   const attemptTotal = modules.reduce((s, m) => s + m.total, 0);
   const correctTotal = modules.reduce((s, m) => s + m.correct, 0);
+
+  const paperStats = new Map();
+  const zhentiIds = new Set();
+  let zhentiAttempts = 0;
+  let zhentiCorrect = 0;
+  for (const { data: rec } of loadSessions(root)) {
+    for (const item of rec.items || []) {
+      if (item.correct === null || item.correct === undefined) continue;
+      const paper = item.paper || item.source || rec.paper || rec.exam || "";
+      const isZhenti = item.isZhenti === true || !!(item.qid || item.paper || rec.isZhenti);
+      if (!isZhenti && !paper) continue;
+      zhentiAttempts += 1;
+      if (item.correct) zhentiCorrect += 1;
+      const qid = String(item.qid || item.id || "");
+      if (qid) zhentiIds.add(qid);
+      const key = paper || "未注明试卷";
+      if (!paperStats.has(key)) {
+        paperStats.set(key, { name: key, year: item.year || rec.year || "", region: item.region || rec.region || "", total: 0, correct: 0, unique: new Set() });
+      }
+      const row = paperStats.get(key);
+      row.total += 1;
+      if (item.correct) row.correct += 1;
+      if (qid) row.unique.add(qid);
+      if (!row.year && (item.year || rec.year)) row.year = item.year || rec.year;
+      if (!row.region && (item.region || rec.region)) row.region = item.region || rec.region;
+    }
+  }
+  const papers = [...paperStats.values()].map((row) => ({
+    name: row.name,
+    year: row.year,
+    region: row.region,
+    total: row.total,
+    correct: row.correct,
+    wrong: Math.max(row.total - row.correct, 0),
+    accuracy: row.total ? Math.round((row.correct / row.total) * 1000) / 1000 : 0,
+    uniqueCount: row.unique.size,
+  })).sort((a, b) => b.total - a.total || String(b.year).localeCompare(String(a.year)));
+
   return {
     updatedAt: progress.updatedAt || nowIso(),
     summary: {
@@ -430,20 +472,207 @@ function buildMap(root) {
       practicedTypes,
       cuotiCount: (cuoti.items || []).length,
       byLevel: levelCounts,
+      zhentiAttemptCount: zhentiAttempts,
+      zhentiCorrectCount: zhentiCorrect,
+      zhentiUniqueCount: zhentiIds.size,
+      paperCount: papers.length,
     },
+    papers,
     modules,
   };
 }
 
-function mapPageHtml() {
-  const here = path.dirname(__filename);
-  const candidates = [path.join(here, "map.html"), path.join(here, "..", "templates", "map.html")];
-  for (const candidate of candidates) {
-    if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
-      return fs.readFileSync(candidate, "utf8");
+
+function listJsonRecords(root, dir, prefix) {
+  const folder = path.join(root, dir);
+  if (!fs.existsSync(folder)) return [];
+  return fs.readdirSync(folder)
+    .filter((name) => name.startsWith(prefix) && name.endsWith(".json"))
+    .map((name) => {
+      const filePath = path.join(folder, name);
+      try {
+        const data = JSON.parse(fs.readFileSync(filePath, "utf8"));
+        if (!data || typeof data !== "object" || Array.isArray(data)) return null;
+        return {
+          file: dir + "/" + name,
+          data,
+          mtime: fs.statSync(filePath).mtimeMs,
+        };
+      } catch {
+        return null;
+      }
+    })
+    .filter(Boolean)
+    .sort((a, b) => {
+      const ka = a.data.savedAt || a.data.submittedAt || a.data.createdAt || a.data.askedAt || "";
+      const kb = b.data.savedAt || b.data.submittedAt || b.data.createdAt || b.data.askedAt || "";
+      if (ka !== kb) return ka < kb ? 1 : -1;
+      return b.mtime - a.mtime;
+    });
+}
+
+function assignmentFilename(record) {
+  const sid = safeToken(record.sessionId || record.id || "", "paper");
+  const created = record.createdAt || nowIso();
+  const ts = String(created).replace(/\D/g, "").slice(0, 14) || timestampLocal();
+  return "gongkao-assignment-" + sid + "-" + ts + ".json";
+}
+
+function qaFilename(record) {
+  const sid = safeToken(record.id || record.qid || "qa", "qa");
+  const created = record.askedAt || record.createdAt || nowIso();
+  const ts = String(created).replace(/\D/g, "").slice(0, 14) || timestampLocal();
+  return "gongkao-qa-" + sid + "-" + ts + ".json";
+}
+
+function validateAssignment(payload) {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    throw new Error("记录必须是 JSON 对象");
+  }
+  return {
+    ...payload,
+    id: payload.id || payload.sessionId || "paper",
+    sessionId: payload.sessionId || payload.id || "paper",
+    createdAt: payload.createdAt || nowIso(),
+    status: payload.status || "assigned",
+  };
+}
+
+function validateQa(payload) {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    throw new Error("记录必须是 JSON 对象");
+  }
+  if (!payload.stem && !payload.question) {
+    throw new Error("记录缺少题干");
+  }
+  return {
+    ...payload,
+    id: payload.id || payload.qid || ("qa-" + Date.now()),
+    stem: payload.stem || payload.question || "",
+    askedAt: payload.askedAt || payload.createdAt || nowIso(),
+    kind: payload.kind || "explain",
+  };
+}
+
+function buildHome(root) {
+  const assignments = listJsonRecords(root, "assignments", "gongkao-assignment-");
+  const sessions = loadSessions(root).map(({ path: filePath, data }) => ({
+    file: "sessions/" + path.basename(filePath),
+    data,
+    mtime: fs.existsSync(filePath) ? fs.statSync(filePath).mtimeMs : 0,
+  }));
+  const sessionById = new Map();
+  for (const row of sessions) {
+    const rec = row.data;
+    const key = rec.sessionId || rec.id || row.file;
+    const prev = sessionById.get(key);
+    const ts = rec.savedAt || rec.startedAt || "";
+    if (!prev || (prev.data.savedAt || prev.data.startedAt || "") <= ts) sessionById.set(key, row);
+  }
+
+  const papers = [];
+  const seen = new Set();
+  function pushPaper(row, kind) {
+    const rec = row.data;
+    const sessionId = rec.sessionId || rec.id || "";
+    const session = sessionId ? sessionById.get(sessionId) : null;
+    const submitted = kind === "session" || rec.status === "submitted" || !!(session && (session.data.summary || session.data.items));
+    const src = submitted && session ? session.data : rec;
+    const summary = src.summary || rec.summary || {};
+    const key = row.file + "::" + (sessionId || rec.paper || rec.title || "");
+    if (seen.has(key)) return;
+    seen.add(key);
+    papers.push({
+      sessionId,
+      title: rec.title || src.title || rec.paper || src.exam || "未命名试卷",
+      paper: rec.paper || src.paper || rec.exam || src.exam || "",
+      year: rec.year || src.year || "",
+      region: rec.region || src.region || "",
+      mode: rec.mode || src.mode || "",
+      isZhenti: !!(rec.isZhenti || src.isZhenti),
+      questionCount: rec.questionCount || (rec.questions || rec.items || []).length || summary.total || 0,
+      total: summary.total || rec.questionCount || 0,
+      scored: summary.scored,
+      correct: summary.correct,
+      accuracy: summary.accuracy,
+      page: rec.page || src.page || "",
+      createdAt: rec.createdAt || rec.startedAt || src.startedAt || rec.savedAt,
+      submittedAt: submitted ? (src.savedAt || rec.submittedAt || "") : "",
+      submitted,
+    });
+  }
+  assignments.forEach((row) => pushPaper(row, "assignment"));
+  for (const row of sessions) {
+    const sid = row.data.sessionId || row.data.id || "";
+    const already = papers.some((p) => p.sessionId && sid && p.sessionId === sid);
+    if (!already) pushPaper(row, "session");
+  }
+  papers.sort((a, b) => String(b.createdAt || b.submittedAt || "").localeCompare(String(a.createdAt || a.submittedAt || "")));
+
+  const questions = [];
+  for (const row of listJsonRecords(root, "qa", "gongkao-qa-")) {
+    const rec = row.data;
+    questions.push({
+      id: rec.id || rec.qid || row.file,
+      qid: rec.qid || "",
+      stem: rec.stem || rec.question || "",
+      module: rec.module || "",
+      type: rec.type || "",
+      paper: rec.paper || rec.source || "",
+      questionNo: rec.questionNo || "",
+      kind: rec.kind || "explain",
+      correct: rec.correct,
+      at: rec.askedAt || rec.createdAt || "",
+      analysis: rec.analysis || "",
+    });
+  }
+  for (const { data: rec } of loadSessions(root)) {
+    for (const item of rec.items || []) {
+      questions.push({
+        id: item.id || item.qid || "",
+        qid: item.qid || "",
+        stem: item.stem || "",
+        module: item.module || "",
+        type: item.type || "",
+        paper: item.paper || item.source || rec.paper || rec.exam || "",
+        questionNo: item.questionNo || "",
+        kind: "practice",
+        correct: item.correct,
+        at: rec.savedAt || rec.startedAt || "",
+        analysis: item.analysis || "",
+      });
     }
   }
-  return "<!DOCTYPE html><html lang='zh-CN'><head><meta charset='UTF-8'><title>能力地图</title></head><body><p>缺少 map.html。</p></body></html>";
+  questions.sort((a, b) => String(b.at || "").localeCompare(String(a.at || "")));
+
+  return {
+    updatedAt: nowIso(),
+    latest: papers[0] || null,
+    papers,
+    questions,
+  };
+}
+
+function readTemplate(names, fallback) {
+  const here = path.dirname(__filename);
+  const bases = [here, path.join(here, "..", "templates")];
+  for (const name of names) {
+    for (const base of bases) {
+      const candidate = path.join(base, name);
+      if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
+        return fs.readFileSync(candidate, "utf8");
+      }
+    }
+  }
+  return fallback;
+}
+
+function mapPageHtml() {
+  return readTemplate(["home.html", "map.html"], "<!DOCTYPE html><html lang='zh-CN'><head><meta charset='UTF-8'><title>公考练习</title></head><body><p>缺少 home.html。</p></body></html>");
+}
+
+function homePageHtml() {
+  return mapPageHtml();
 }
 
 function indexPage(root) {
@@ -541,8 +770,8 @@ function createHandler(root, port) {
     }
 
     if (req.method === "GET") {
-      if (pathname === "/" || pathname === "/index.html") {
-        sendBytes(res, 200, indexPage(root), "text/html; charset=utf-8");
+      if (pathname === "/" || pathname === "/index.html" || pathname === "/home" || pathname === "/home.html") {
+        sendBytes(res, 200, homePageHtml(), "text/html; charset=utf-8");
         return;
       }
       if (pathname === "/api/health") {
@@ -552,8 +781,21 @@ function createHandler(root, port) {
           dataDir: root,
           sessionCount: listSessionFiles(root).length,
           port,
-          mapUrl: `http://127.0.0.1:${port}/map`,
+          homeUrl: "http://127.0.0.1:" + port + "/",
+          mapUrl: "http://127.0.0.1:" + port + "/map",
         });
+        return;
+      }
+      if (pathname === "/api/home") {
+        sendJson(res, 200, { ok: true, home: buildHome(root) });
+        return;
+      }
+      if (pathname === "/api/assignments") {
+        sendJson(res, 200, { ok: true, assignments: listJsonRecords(root, "assignments", "gongkao-assignment-").map((row) => ({ file: row.file, ...row.data })) });
+        return;
+      }
+      if (pathname === "/api/qa") {
+        sendJson(res, 200, { ok: true, qa: listJsonRecords(root, "qa", "gongkao-qa-").map((row) => ({ file: row.file, ...row.data })) });
         return;
       }
       if (pathname === "/api/progress") {
@@ -571,7 +813,7 @@ function createHandler(root, port) {
         return;
       }
       if (pathname === "/map" || pathname === "/map.html") {
-        sendBytes(res, 200, mapPageHtml(), "text/html; charset=utf-8");
+        sendBytes(res, 200, homePageHtml(), "text/html; charset=utf-8");
         return;
       }
       if (pathname.startsWith("/pages/")) {
@@ -595,7 +837,7 @@ function createHandler(root, port) {
     }
 
     if (req.method === "POST") {
-      if (pathname !== "/api/sessions") {
+      if (!["/api/sessions", "/api/assignments", "/api/qa"].includes(pathname)) {
         sendJson(res, 404, { ok: false, error: "未找到接口" });
         return;
       }
@@ -617,19 +859,32 @@ function createHandler(root, port) {
       req.on("end", () => {
         try {
           const payload = JSON.parse(Buffer.concat(chunks).toString("utf8"));
-          const record = validateRecord(payload);
-          const filename = sessionFilename(record);
-          const dest = path.join(root, "sessions", filename);
-          writeJson(dest, record);
-          const { progress, cuoti } = persistProgress(root);
-          sendJson(res, 200, {
-            ok: true,
-            file: `sessions/${filename}`,
-            dataDir: root,
-            summary: record.summary || {},
-            progress,
-            cuotiCount: (cuoti.items || []).length,
-          });
+          if (pathname === "/api/sessions") {
+            const record = validateRecord(payload);
+            const filename = sessionFilename(record);
+            writeJson(path.join(root, "sessions", filename), record);
+            const { progress, cuoti } = persistProgress(root);
+            sendJson(res, 200, {
+              ok: true,
+              file: "sessions/" + filename,
+              dataDir: root,
+              summary: record.summary || {},
+              progress,
+              cuotiCount: (cuoti.items || []).length,
+            });
+            return;
+          }
+          if (pathname === "/api/assignments") {
+            const record = validateAssignment(payload);
+            const filename = assignmentFilename(record);
+            writeJson(path.join(root, "assignments", filename), record);
+            sendJson(res, 200, { ok: true, file: "assignments/" + filename, assignment: record });
+            return;
+          }
+          const record = validateQa(payload);
+          const filename = qaFilename(record);
+          writeJson(path.join(root, "qa", filename), record);
+          sendJson(res, 200, { ok: true, file: "qa/" + filename, qa: record });
         } catch (err) {
           if (err instanceof SyntaxError) {
             sendJson(res, 400, { ok: false, error: "JSON 无法解析" });

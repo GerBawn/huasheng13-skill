@@ -90,6 +90,8 @@
     .analysis { display: none; margin-top: 16px; padding-top: 16px; border-top: 1px dashed var(--line); }
     .analysis.show { display: block; }
     .analysis h3 { margin: 0 0 8px; font-size: 14px; }
+    .source { display: none; margin-top: 12px; color: var(--muted); font-size: 13px; }
+    .source.show { display: block; }
     .dock {
       position: fixed; left: 0; right: 0; bottom: 0;
       background: rgba(246,243,238,.92); backdrop-filter: blur(10px);
@@ -174,9 +176,27 @@
     };
 
     const $ = id => document.getElementById(id);
-    $("title").textContent = session.title || "练习";
-    $("meta").textContent = [session.exam, session.mode === "review" ? "错题回顾" : (session.mode === "report" ? "复盘" : "练习")].filter(Boolean).join(" · ");
-    document.title = session.title || "公考练习";
+    const isZhentiSession = !!(session.isZhenti || session.paper || (session.questions || []).some(q => q.isZhenti || q.paper || q.qid));
+    function paperLabel(q) {
+      if (!q) return session.paper || session.exam || "";
+      const paper = q.paper || q.source || session.paper || session.exam || "";
+      const bits = [paper];
+      if (q.module) bits.push(q.module);
+      if (q.questionNo) bits.push("第 " + q.questionNo + " 题");
+      return bits.filter(Boolean).join(" · ");
+    }
+    function modeLabel() {
+      if (session.mode === "review") return "错题回顾";
+      if (session.mode === "report") return "复盘";
+      return isZhentiSession ? "真题练习" : "练习";
+    }
+    function headerMeta() {
+      if (state.submitted) return [session.exam || session.paper || "", modeLabel()].filter(Boolean).join(" · ");
+      return modeLabel();
+    }
+    $("title").textContent = state.submitted ? (session.title || "练习") : (isZhentiSession ? "真题练习" : (session.title || "练习"));
+    $("meta").textContent = headerMeta();
+    document.title = $("title").textContent || "公考练习";
 
     function letter(i) { return String.fromCharCode(65 + i); }
     function pad(n) { return String(n).padStart(2, "0"); }
@@ -220,7 +240,10 @@
 
       const selected = state.answers[q.id];
       const isEssay = q.kind === "essay" || (!q.options || !q.options.length);
-      let body = `<h2>${q.module || ""} ${q.type ? "· " + q.type : ""} · 第 ${state.i + 1} 题</h2>
+      const heading = state.submitted
+        ? `${q.module || ""} ${q.type ? "· " + q.type : ""} · 第 ${state.i + 1} 题`
+        : `第 ${state.i + 1} 题${q.module ? " · " + q.module : ""}${q.type ? " · " + q.type : ""}`;
+      let body = `<h2>${heading}</h2>
         <p class="q-stem">${q.stem || ""}</p>`;
       if (isEssay) {
         body += `<textarea class="essay" ${state.submitted ? "disabled" : ""} placeholder="在这里作答">${selected || ""}</textarea>`;
@@ -238,7 +261,11 @@
         }).join("")}</div>`;
       }
       const analysis = q.analysis ? `<div class="analysis ${state.submitted || session.allowReviewBeforeSubmit ? "show" : ""}"><h3>解析</h3><div>${q.analysis}</div></div>` : "";
-      $("question").innerHTML = body + analysis;
+      const source = `<div class="source ${state.submitted ? "show" : ""}">来源：${paperLabel(q)}</div>`;
+      $("question").innerHTML = body + analysis + source;
+      $("title").textContent = state.submitted ? (session.title || "练习") : (isZhentiSession ? "真题练习" : (session.title || "练习"));
+      $("meta").textContent = headerMeta();
+      document.title = $("title").textContent || "公考练习";
       $("flag").textContent = state.flags[q.id] ? "取消标记" : "标记";
       $("submit").classList.toggle("hidden", state.submitted);
       renderNav();
@@ -250,13 +277,19 @@
         const correct = q.answer ? norm(userAnswer) === norm(q.answer) : null;
         return {
           id: q.id,
+          qid: q.qid || "",
           module: q.module || "",
           type: q.type || "",
           kind: q.kind || (q.options && q.options.length ? "choice" : "essay"),
           stem: q.stem || "",
           options: q.options || [],
           analysis: q.analysis || "",
-          source: q.source || "",
+          source: q.source || q.paper || session.paper || session.exam || "",
+          paper: q.paper || session.paper || session.exam || "",
+          year: q.year || session.year || "",
+          region: q.region || session.region || "",
+          questionNo: q.questionNo || "",
+          isZhenti: q.isZhenti === true || !!(q.qid || q.paper || session.isZhenti),
           userAnswer,
           correctAnswer: q.answer || "",
           correct,
@@ -304,7 +337,10 @@
         `<div class="stat"><div class="n">${v.correct}/${v.total}</div><div class="l">${k}</div></div>`
       ).join("");
       $("report").classList.remove("hidden");
+      const paperLine = session.paper || session.exam || rec.items.find(it => it.paper || it.source);
+      const paperName = session.paper || session.exam || (paperLine && (paperLine.paper || paperLine.source)) || "";
       $("report").innerHTML = `
+        ${paperName ? `<p class="meta" style="margin:0 0 12px;">试卷：${paperName}</p>` : ""}
         <div class="score">
           <div class="stat"><div class="n">${acc}</div><div class="l">正确率</div></div>
           <div class="stat"><div class="n">${s.correct}/${s.scored || s.total}</div><div class="l">答对题数</div></div>
