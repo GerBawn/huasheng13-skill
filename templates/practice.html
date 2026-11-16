@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{{TITLE}}</title>
+  <style>
+    :root {
+      --bg: #f6f3ee;
+      --paper: #fffcf7;
+      --ink: #1f1b16;
+      --muted: #6b645b;
+      --line: #e6e0d6;
+      --accent: #2d4a6e;
+      --accent-soft: #e8eef6;
+      --ok: #2c6e4f;
+      --ok-soft: #e6f4ec;
+      --bad: #a33b32;
+      --bad-soft: #f8eaea;
+      --warn: #8a5a12;
+      --shadow: 0 1px 2px rgba(31, 27, 22, .06), 0 8px 24px rgba(31, 27, 22, .05);
+      --radius: 14px;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; background: var(--bg); color: var(--ink); }
+    body {
+      font: 16px/1.65 "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "Source Han Sans SC", system-ui, sans-serif;
+    }
+    button, input, textarea { font: inherit; }
+    button { cursor: pointer; }
+    .app { max-width: 920px; margin: 0 auto; padding: 24px 20px 120px; }
+    header.top {
+      display: flex; align-items: flex-start; justify-content: space-between;
+      gap: 16px; margin-bottom: 20px;
+    }
+    .title h1 { margin: 0 0 4px; font-size: 22px; font-weight: 650; letter-spacing: .02em; }
+    .title .meta { color: var(--muted); font-size: 13px; }
+    .hud {
+      display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+    }
+    .chip {
+      background: var(--paper); border: 1px solid var(--line); border-radius: 999px;
+      padding: 6px 12px; font-size: 13px; color: var(--muted); box-shadow: var(--shadow);
+    }
+    .chip strong { color: var(--ink); font-weight: 600; }
+    .chip.warn { color: var(--warn); }
+    .layout { display: grid; grid-template-columns: 72px 1fr; gap: 16px; }
+    @media (max-width: 720px) { .layout { grid-template-columns: 1fr; } .nav { display: flex; flex-wrap: wrap; } }
+    .nav { display: flex; flex-direction: column; gap: 6px; }
+    .nav button {
+      width: 40px; height: 40px; border-radius: 10px; border: 1px solid var(--line);
+      background: var(--paper); color: var(--ink);
+    }
+    .nav button.current { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); font-weight: 650; }
+    .nav button.answered { box-shadow: inset 0 -3px 0 var(--accent); }
+    .nav button.flagged::after { content: ""; display: block; width: 6px; height: 6px; border-radius: 50%; background: var(--warn); margin: 2px auto 0; }
+    .nav button.ok { background: var(--ok-soft); border-color: #c8e4d3; }
+    .nav button.bad { background: var(--bad-soft); border-color: #efcfcb; }
+    .card {
+      background: var(--paper); border: 1px solid var(--line); border-radius: var(--radius);
+      box-shadow: var(--shadow); padding: 22px 24px;
+    }
+    .material { margin-bottom: 14px; color: #3a342c; }
+    .material h2, .q h2 { margin: 0 0 10px; font-size: 13px; font-weight: 600; color: var(--muted); letter-spacing: .08em; text-transform: uppercase; }
+    .q-stem { font-size: 17px; line-height: 1.75; margin: 0 0 16px; }
+    .opts { display: grid; gap: 8px; }
+    .opt {
+      display: grid; grid-template-columns: 28px 1fr; gap: 10px; align-items: start;
+      text-align: left; border: 1px solid var(--line); background: #fff; border-radius: 12px;
+      padding: 12px 14px; color: inherit;
+    }
+    .opt:hover { border-color: #c9d6e6; }
+    .opt .key {
+      width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center;
+      background: var(--accent-soft); color: var(--accent); font-weight: 650; font-size: 13px;
+    }
+    .opt.selected { border-color: var(--accent); background: var(--accent-soft); }
+    .opt.correct { border-color: var(--ok); background: var(--ok-soft); }
+    .opt.correct .key { background: var(--ok); color: #fff; }
+    .opt.wrong { border-color: var(--bad); background: var(--bad-soft); }
+    .opt.wrong .key { background: var(--bad); color: #fff; }
+    .opt:disabled { cursor: default; }
+    textarea.essay {
+      width: 100%; min-height: 220px; border: 1px solid var(--line); border-radius: 12px;
+      padding: 14px; resize: vertical; background: #fff; color: inherit;
+    }
+    .analysis { display: none; margin-top: 16px; padding-top: 16px; border-top: 1px dashed var(--line); }
+    .analysis.show { display: block; }
+    .analysis h3 { margin: 0 0 8px; font-size: 14px; }
+    .dock {
+      position: fixed; left: 0; right: 0; bottom: 0;
+      background: rgba(246,243,238,.92); backdrop-filter: blur(10px);
+      border-top: 1px solid var(--line); padding: 12px 20px;
+    }
+    .dock-inner { max-width: 920px; margin: 0 auto; display: flex; gap: 8px; flex-wrap: wrap; justify-content: space-between; align-items: center; }
+    .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+    .btn {
+      border: 1px solid var(--line); background: var(--paper); border-radius: 10px;
+      padding: 8px 14px; color: var(--ink);
+    }
+    .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .btn.ghost { background: transparent; }
+    .score { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-bottom: 16px; }
+    .stat { background: var(--paper); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
+    .stat .n { font-size: 24px; font-weight: 650; }
+    .stat .l { font-size: 12px; color: var(--muted); }
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="top">
+      <div class="title">
+        <h1 id="title">练习</h1>
+        <div class="meta" id="meta"></div>
+      </div>
+      <div class="hud">
+        <div class="chip" id="progress">0 / 0</div>
+        <div class="chip" id="timer">--:--</div>
+      </div>
+    </header>
+    <section id="report" class="hidden"></section>
+    <div class="layout" id="exam-wrap">
+      <nav class="nav" id="nav"></nav>
+      <main>
+        <article class="card material hidden" id="material"></article>
+        <article class="card q" id="question"></article>
+      </main>
+    </div>
+  </div>
+  <div class="dock">
+    <div class="dock-inner">
+      <div class="actions">
+        <button class="btn" id="prev" type="button">上一题</button>
+        <button class="btn" id="next" type="button">下一题</button>
+        <button class="btn ghost" id="flag" type="button">标记</button>
+      </div>
+      <div class="actions">
+        <button class="btn" id="copy" type="button">复制作答记录</button>
+        <button class="btn" id="save" type="button">保存作答</button>
+        <button class="btn primary" id="submit" type="button">交卷</button>
+      </div>
+    </div>
+  </div>
+  <script>
+    window.GONGKAO_SESSION = window.GONGKAO_SESSION || {
+      id: "demo",
+      title: "练习",
+      mode: "practice",
+      exam: "",
+      durationMinutes: 0,
+      allowReviewBeforeSubmit: false,
+      materials: [],
+      questions: []
+    };
+  </script>
+  <script>
+    const session = window.GONGKAO_SESSION;
+    const qs = session.questions || [];
+    const materials = Object.fromEntries((session.materials || []).map(m => [m.id, m]));
+    const state = {
+      i: 0,
+      answers: {},
+      flags: {},
+      startedAt: Date.now(),
+      usedSeconds: 0,
+      ticking: true,
+      submitted: session.mode === "review" || session.mode === "report"
+    };
+
+    const $ = id => document.getElementById(id);
+    $("title").textContent = session.title || "练习";
+    $("meta").textContent = [session.exam, session.mode === "review" ? "错题回顾" : (session.mode === "report" ? "复盘" : "练习")].filter(Boolean).join(" · ");
+    document.title = session.title || "公考练习";
+
+    function letter(i) { return String.fromCharCode(65 + i); }
+    function pad(n) { return String(n).padStart(2, "0"); }
+    function fmt(sec) {
+      sec = Math.max(0, sec | 0);
+      return `${pad(Math.floor(sec / 60))}:${pad(sec % 60)}`;
+    }
+    function remaining() {
+      if (!session.durationMinutes) return null;
+      return session.durationMinutes * 60 - Math.floor((Date.now() - state.startedAt) / 1000);
+    }
+
+    function renderNav() {
+      $("nav").innerHTML = qs.map((q, i) => {
+        const ans = state.answers[q.id];
+        const cls = [
+          i === state.i ? "current" : "",
+          ans ? "answered" : "",
+          state.flags[q.id] ? "flagged" : "",
+          state.submitted && q.answer ? (norm(ans) === norm(q.answer) ? "ok" : "bad") : ""
+        ].join(" ");
+        return `<button type="button" class="${cls}" data-i="${i}">${i + 1}</button>`;
+      }).join("");
+      $("progress").innerHTML = `<strong>${Object.keys(state.answers).length}</strong> / ${qs.length}`;
+    }
+
+    function norm(v) { return String(v || "").trim().toUpperCase(); }
+
+    function render() {
+      const q = qs[state.i];
+      if (!q) return;
+      const mat = q.materialId ? materials[q.materialId] : null;
+      const materialEl = $("material");
+      if (mat) {
+        materialEl.classList.remove("hidden");
+        materialEl.innerHTML = `<h2>${mat.title || "材料"}</h2><div>${mat.html || mat.text || ""}</div>`;
+      } else {
+        materialEl.classList.add("hidden");
+        materialEl.innerHTML = "";
+      }
+
+      const selected = state.answers[q.id];
+      const isEssay = q.kind === "essay" || (!q.options || !q.options.length);
+      let body = `<h2>${q.module || ""} ${q.type ? "· " + q.type : ""} · 第 ${state.i + 1} 题</h2>
+        <p class="q-stem">${q.stem || ""}</p>`;
+      if (isEssay) {
+        body += `<textarea class="essay" ${state.submitted ? "disabled" : ""} placeholder="在这里作答">${selected || ""}</textarea>`;
+      } else {
+        body += `<div class="opts">${(q.options || []).map((opt, i) => {
+          const key = letter(i);
+          const text = String(opt).replace(/^[A-DＡ-Ｄ][\.、．]\s*/, "");
+          const cls = ["opt"];
+          if (norm(selected) === key) cls.push("selected");
+          if (state.submitted && q.answer) {
+            if (key === norm(q.answer)) cls.push("correct");
+            else if (norm(selected) === key) cls.push("wrong");
+          }
+          return `<button type="button" class="${cls.join(" ")}" data-key="${key}" ${state.submitted ? "disabled" : ""}><span class="key">${key}</span><span>${text}</span></button>`;
+        }).join("")}</div>`;
+      }
+      const analysis = q.analysis ? `<div class="analysis ${state.submitted || session.allowReviewBeforeSubmit ? "show" : ""}"><h3>解析</h3><div>${q.analysis}</div></div>` : "";
+      $("question").innerHTML = body + analysis;
+      $("flag").textContent = state.flags[q.id] ? "取消标记" : "标记";
+      $("submit").classList.toggle("hidden", state.submitted);
+      renderNav();
+    }
+
+    function record() {
+      const items = qs.map(q => {
+        const userAnswer = state.answers[q.id] || "";
+        const correct = q.answer ? norm(userAnswer) === norm(q.answer) : null;
+        return {
+          id: q.id,
+          module: q.module || "",
+          type: q.type || "",
+          stem: q.stem || "",
+          source: q.source || "",
+          userAnswer,
+          correctAnswer: q.answer || "",
+          correct,
+          flagged: !!state.flags[q.id]
+        };
+      });
+      const scored = items.filter(x => x.correct !== null);
+      const right = scored.filter(x => x.correct).length;
+      const by = (key) => {
+        const map = {};
+        scored.forEach(it => {
+          const k = it[key] || "未分类";
+          map[k] = map[k] || { total: 0, correct: 0 };
+          map[k].total += 1;
+          if (it.correct) map[k].correct += 1;
+        });
+        return map;
+      };
+      return {
+        savedAt: new Date().toISOString(),
+        sessionId: session.id,
+        title: session.title,
+        mode: session.mode,
+        exam: session.exam || "",
+        durationSeconds: (session.durationMinutes || 0) * 60,
+        usedSeconds: state.usedSeconds,
+        items,
+        summary: {
+          total: qs.length,
+          scored: scored.length,
+          correct: right,
+          accuracy: scored.length ? Math.round(right / scored.length * 1000) / 1000 : null,
+          byModule: by("module"),
+          byType: by("type")
+        }
+      };
+    }
+
+    function renderReport() {
+      const rec = record();
+      const s = rec.summary;
+      const acc = s.accuracy == null ? "--" : Math.round(s.accuracy * 100) + "%";
+      const rows = Object.entries(s.byType).map(([k, v]) =>
+        `<div class="stat"><div class="n">${v.correct}/${v.total}</div><div class="l">${k}</div></div>`
+      ).join("");
+      $("report").classList.remove("hidden");
+      $("report").innerHTML = `
+        <div class="score">
+          <div class="stat"><div class="n">${acc}</div><div class="l">正确率</div></div>
+          <div class="stat"><div class="n">${s.correct}/${s.scored || s.total}</div><div class="l">答对题数</div></div>
+          <div class="stat"><div class="n">${fmt(rec.usedSeconds)}</div><div class="l">用时</div></div>
+        </div>
+        <div class="score">${rows}</div>`;
+    }
+
+    async function saveFile() {
+      const rec = record();
+      const name = `gongkao-session-${(session.id || "practice").replace(/[^\w\-]+/g, "")}-${new Date().toISOString().slice(0,19).replace(/[:T]/g, "")}.json`;
+      const blob = new Blob([JSON.stringify(rec, null, 2)], { type: "application/json" });
+      if (window.showSaveFilePicker) {
+        try {
+          const handle = await window.showSaveFilePicker({
+            suggestedName: name,
+            types: [{ description: "JSON", accept: { "application/json": [".json"] } }]
+          });
+          const writable = await handle.createWritable();
+          await writable.write(blob);
+          await writable.close();
+          return;
+        } catch (err) {
+          if (err && err.name === "AbortError") return;
+        }
+      }
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = name;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    }
+
+    function copyRecord() {
+      const rec = record();
+      navigator.clipboard.writeText(JSON.stringify(rec, null, 2)).then(() => {
+        $("copy").textContent = "已复制";
+        setTimeout(() => $("copy").textContent = "复制作答记录", 1500);
+      });
+    }
+
+    function submit() {
+      state.submitted = true;
+      state.ticking = false;
+      state.usedSeconds = Math.floor((Date.now() - state.startedAt) / 1000);
+      renderReport();
+      render();
+    }
+
+    $("nav").addEventListener("click", e => {
+      const btn = e.target.closest("button[data-i]");
+      if (btn) { state.i = Number(btn.dataset.i); render(); }
+    });
+    $("prev").addEventListener("click", () => { if (state.i > 0) { state.i -= 1; render(); } });
+    $("next").addEventListener("click", () => { if (state.i < qs.length - 1) { state.i += 1; render(); } });
+    $("flag").addEventListener("click", () => {
+      const id = qs[state.i].id;
+      state.flags[id] = !state.flags[id];
+      render();
+    });
+    $("question").addEventListener("click", e => {
+      const btn = e.target.closest(".opt");
+      if (!btn || state.submitted) return;
+      state.answers[qs[state.i].id] = btn.dataset.key;
+      render();
+    });
+    $("question").addEventListener("input", e => {
+      if (e.target.classList.contains("essay")) state.answers[qs[state.i].id] = e.target.value;
+    });
+    $("submit").addEventListener("click", submit);
+    $("save").addEventListener("click", saveFile);
+    $("copy").addEventListener("click", copyRecord);
+
+    document.addEventListener("keydown", e => {
+      if (e.target.matches("textarea, input")) return;
+      if (/^[1-4a-dA-D]$/.test(e.key) && !state.submitted) {
+        const idx = "abcdABCD1234".includes(e.key) ? "abcdABCD1234".indexOf(e.key) % 4 : -1;
+        if (idx >= 0 && qs[state.i] && qs[state.i].options && qs[state.i].options[idx]) {
+          state.answers[qs[state.i].id] = letter(idx);
+          render();
+        }
+      } else if (e.key === "ArrowLeft") $("prev").click();
+      else if (e.key === "ArrowRight") $("next").click();
+    });
+
+    setInterval(() => {
+      if (!state.ticking && session.durationMinutes) return;
+      state.usedSeconds = Math.floor((Date.now() - state.startedAt) / 1000);
+      const left = remaining();
+      const el = $("timer");
+      if (left == null) el.textContent = fmt(state.usedSeconds);
+      else {
+        el.textContent = fmt(left);
+        el.classList.toggle("warn", left <= 60);
+        if (left <= 0 && !state.submitted) submit();
+      }
+    }, 250);
+
+    if (session.mode === "report") renderReport();
+    if (!qs.length) {
+      $("question").innerHTML = "<p>这一份练习还没有题目。</p>";
+    } else {
+      render();
+    }
+  </script>
+</body>
+</html>
