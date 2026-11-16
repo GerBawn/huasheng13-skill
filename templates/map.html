@@ -31,13 +31,17 @@
     h1 { margin: 0 0 6px; font-size: 22px; font-weight: 650; }
     h2 { margin: 0 0 12px; font-size: 16px; font-weight: 650; }
     .meta { color: var(--muted); font-size: 13px; margin-bottom: 16px; }
-    .legend { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+    .legend { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; align-items: center; }
+    .legend .label { font-size: 12px; color: var(--muted); margin-right: 4px; }
     .tag { border-radius: 999px; padding: 4px 10px; font-size: 12px; }
+    .tag .count { font-weight: 650; margin-left: 4px; }
     .lv-未练 { background: var(--idle-soft); color: var(--idle); }
     .lv-薄弱 { background: var(--bad-soft); color: var(--bad); }
     .lv-一般 { background: var(--mid-soft); color: var(--mid); }
     .lv-掌握 { background: var(--ok-soft); color: var(--ok); }
-    .score { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; margin-bottom: 16px; }
+    .score { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; margin-bottom: 16px; }
+    @media (max-width: 860px) { .score { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+    @media (max-width: 520px) { .score { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
     .stat, .card, .mod { background: var(--paper); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); }
     .stat { padding: 12px 14px; }
     .stat .n { font-size: 24px; font-weight: 650; }
@@ -92,7 +96,8 @@
   <div class="app">
     <h1>公考能力地图</h1>
     <div class="meta" id="meta">正在读取作答记录…</div>
-    <div class="legend">
+    <div class="legend" id="legend">
+      <span class="label">题型等级</span>
       <span class="tag lv-未练">未练</span>
       <span class="tag lv-薄弱">薄弱</span>
       <span class="tag lv-一般">一般</span>
@@ -226,7 +231,11 @@
       document.getElementById("meta").textContent =
         "更新于 " + (data.updatedAt || "—") + " · 共 " + (summary.uniqueCount || 0) + " 道不同的题 · 已练 " + (summary.practicedTypes || 0) + " 个题型 · 练过 " + (summary.sessionCount || 0) + " 场";
       const counts = summary.byLevel || {};
-      const levelLine = LEVELS.map(lv => lv + " " + (counts[lv] || 0)).join(" · ");
+      document.getElementById("legend").innerHTML =
+        '<span class="label">题型等级</span>' +
+        LEVELS.map(lv =>
+          `<span class="tag lv-${lv}">${lv}<span class="count">${counts[lv] || 0}</span></span>`
+        ).join("");
       document.getElementById("score").innerHTML = [
         ["作答题次", summary.attemptCount || 0, ""],
         ["答对", summary.correctCount || 0, "good"],
@@ -236,7 +245,7 @@
         ["仍待复习", summary.cuotiCount || 0, "bad"]
       ].map(([label, n, cls]) =>
         `<div class="stat ${cls}"><div class="n">${n}</div><div class="l">${label}</div></div>`
-      ).join("") + `<div class="stat"><div class="n" style="font-size:13px;line-height:1.35;font-weight:600;padding-top:4px;">${levelLine}</div><div class="l">题型等级分布</div></div>`;
+      ).join("");
       const practiced = (data.modules || []).filter(m => m.total);
       document.getElementById("cats").innerHTML = practiced.length ? `
         <table class="cat">
