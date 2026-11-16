@@ -27,29 +27,54 @@
     * { box-sizing: border-box; }
     html, body { margin: 0; padding: 0; background: var(--bg); color: var(--ink); }
     body { font: 16px/1.65 "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "Source Han Sans SC", system-ui, sans-serif; }
-    .app { max-width: 920px; margin: 0 auto; padding: 28px 20px 64px; }
+    .app { max-width: 980px; margin: 0 auto; padding: 28px 20px 64px; }
     h1 { margin: 0 0 6px; font-size: 22px; font-weight: 650; }
-    .meta { color: var(--muted); font-size: 13px; margin-bottom: 18px; }
-    .legend { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 18px; }
+    h2 { margin: 0 0 12px; font-size: 16px; font-weight: 650; }
+    .meta { color: var(--muted); font-size: 13px; margin-bottom: 16px; }
+    .legend { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
     .tag { border-radius: 999px; padding: 4px 10px; font-size: 12px; }
     .lv-未练 { background: var(--idle-soft); color: var(--idle); }
     .lv-薄弱 { background: var(--bad-soft); color: var(--bad); }
     .lv-一般 { background: var(--mid-soft); color: var(--mid); }
     .lv-掌握 { background: var(--ok-soft); color: var(--ok); }
-    .score { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-bottom: 18px; }
-    .stat, .mod { background: var(--paper); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); }
+    .score { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; margin-bottom: 16px; }
+    .stat, .card, .mod { background: var(--paper); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); }
     .stat { padding: 12px 14px; }
     .stat .n { font-size: 24px; font-weight: 650; }
     .stat .l { font-size: 12px; color: var(--muted); }
-    .mod { padding: 16px 18px; margin-bottom: 12px; }
+    .overview { display: grid; grid-template-columns: 420px 1fr; gap: 16px; margin-bottom: 22px; align-items: stretch; }
+    @media (max-width: 860px) { .overview { grid-template-columns: 1fr; } }
+    .card { padding: 16px 18px; }
+    .radar-wrap { display: flex; justify-content: center; }
+    .radar-wrap svg { width: 100%; max-width: 400px; height: auto; }
+    .radar-label { cursor: pointer; }
+    .heat-row { display: grid; grid-template-columns: 76px 1fr; gap: 10px; align-items: start; margin-bottom: 10px; }
+    .heat-row .mod-name { font-size: 13px; padding-top: 6px; color: var(--ink); cursor: pointer; }
+    .heat-cells { display: flex; flex-wrap: wrap; gap: 6px; }
+    .cell {
+      width: 28px; height: 28px; border-radius: 7px; border: 1px solid transparent;
+      cursor: pointer; position: relative;
+    }
+    .cell.lv-未练 { background: var(--idle-soft); border-color: #ddd8d0; }
+    .cell.lv-薄弱 { background: #e7b3ae; border-color: #d28c86; }
+    .cell.lv-一般 { background: #e8d09a; border-color: #d0b06a; }
+    .cell.lv-掌握 { background: #9dcbaf; border-color: #6ea987; }
+    .cell.current { outline: 2px solid var(--accent); outline-offset: 1px; }
+    .hint {
+      min-height: 44px; margin-top: 8px; padding: 10px 12px; border-radius: 10px;
+      background: #fff; border: 1px dashed var(--line); color: var(--muted); font-size: 13px;
+    }
+    .hint strong { color: var(--ink); font-weight: 650; }
+    .mod { padding: 16px 18px; margin-bottom: 12px; scroll-margin-top: 16px; }
     .mod-h { display: flex; justify-content: space-between; gap: 12px; align-items: center; margin-bottom: 10px; }
-    .mod-h h2 { margin: 0; font-size: 16px; }
+    .mod-h h2 { margin: 0; }
     .bar { height: 8px; background: var(--idle-soft); border-radius: 99px; overflow: hidden; margin: 8px 0 12px; }
     .bar > span { display: block; height: 100%; background: var(--accent); }
     .types { display: grid; gap: 6px; }
     .type { display: grid; grid-template-columns: 1fr auto auto; gap: 10px; align-items: center; padding: 8px 10px; border-radius: 10px; background: #fff; border: 1px solid var(--line); }
     .type .name { font-size: 14px; }
     .type .n { font-size: 12px; color: var(--muted); }
+    .detail-title { margin: 8px 0 14px; font-size: 16px; }
     .empty { color: var(--muted); }
   </style>
 </head>
@@ -64,15 +89,116 @@
       <span class="tag lv-掌握">掌握</span>
     </div>
     <div class="score" id="score"></div>
+    <div class="overview">
+      <section class="card">
+        <h2>模块雷达</h2>
+        <p class="meta" style="margin-top:-6px;">越靠外越熟练，中心是未练。</p>
+        <div class="radar-wrap" id="radar"></div>
+      </section>
+      <section class="card">
+        <h2>题型热力</h2>
+        <p class="meta" style="margin-top:-6px;">每个方块是一道题型，点一下看详情。</p>
+        <div id="heat"></div>
+        <div class="hint" id="hint">点雷达轴或热力块，查看这个模块或题型的正确率和错题数。</div>
+      </section>
+    </div>
+    <h2 class="detail-title">分模块明细</h2>
     <div id="mods"></div>
   </div>
   <script>
     const LEVELS = ["未练", "薄弱", "一般", "掌握"];
+    const COLORS = { "未练": "#8a857c", "薄弱": "#a33b32", "一般": "#8a5a12", "掌握": "#2c6e4f" };
+
     function accText(row) {
       if (!row.total) return "还没做";
       return Math.round(row.accuracy * 100) + "% · " + row.correct + "/" + row.total;
     }
+    function score(row) {
+      if (!row.total) return 0;
+      if (row.level === "掌握") return Math.max(row.accuracy || 0, 0.8);
+      return Math.max(0, Math.min(1, row.accuracy || 0));
+    }
+    function hintText(title, row, extra) {
+      const bits = [accText(row), row.level];
+      if (row.cuotiCount) bits.push("待复习错题 " + row.cuotiCount + " 道");
+      if (extra) bits.push(extra);
+      return "<strong>" + title + "</strong>　" + bits.join(" · ");
+    }
+
+    function polar(cx, cy, r, i, n) {
+      const a = -Math.PI / 2 + (Math.PI * 2 * i) / n;
+      return [cx + r * Math.cos(a), cy + r * Math.sin(a)];
+    }
+
+    function drawRadar(modules) {
+      const n = modules.length || 1;
+      const size = 420, cx = 210, cy = 210, r = 126;
+      const grid = [0.25, 0.5, 0.75, 1];
+      let svg = `<svg viewBox="0 0 ${size} ${size}" role="img" aria-label="模块掌握度雷达图">`;
+      grid.forEach(g => {
+        const pts = modules.map((_, i) => polar(cx, cy, r * g, i, n).join(",")).join(" ");
+        svg += `<polygon points="${pts}" fill="none" stroke="#e6e0d6" stroke-width="1"/>`;
+      });
+      modules.forEach((_, i) => {
+        const [x, y] = polar(cx, cy, r, i, n);
+        svg += `<line x1="${cx}" y1="${cy}" x2="${x}" y2="${y}" stroke="#e6e0d6" stroke-width="1"/>`;
+      });
+      const dataPts = modules.map((m, i) => polar(cx, cy, r * score(m), i, n).join(",")).join(" ");
+      svg += `<polygon points="${dataPts}" fill="rgba(45,74,110,.18)" stroke="#2d4a6e" stroke-width="2"/>`;
+      modules.forEach((m, i) => {
+        const [dx, dy] = polar(cx, cy, r * score(m), i, n);
+        svg += `<circle cx="${dx}" cy="${dy}" r="4" fill="${COLORS[m.level] || "#2d4a6e"}"/>`;
+        const [lx, ly] = polar(cx, cy, r + 28, i, n);
+        svg += `<text class="radar-label" data-mod="${i}" x="${lx}" y="${ly}" text-anchor="middle" dominant-baseline="middle" font-size="12" fill="#1f1b16">${m.name}</text>`;
+      });
+      svg += "</svg>";
+      document.getElementById("radar").innerHTML = svg;
+      document.querySelectorAll("#radar .radar-label").forEach(el => {
+        el.addEventListener("click", () => showModule(Number(el.dataset.mod)));
+      });
+    }
+
+    function drawHeat(modules) {
+      document.getElementById("heat").innerHTML = modules.map((mod, mi) => {
+        const cells = (mod.types || []).map((t, ti) =>
+          `<button type="button" class="cell lv-${t.level}" data-mod="${mi}" data-type="${ti}" title="${t.name} · ${accText(t)}"></button>`
+        ).join("");
+        return `<div class="heat-row"><div class="mod-name" data-mod="${mi}">${mod.name}</div><div class="heat-cells">${cells}</div></div>`;
+      }).join("");
+    }
+
+    let mapData = { modules: [] };
+
+    function clearCurrent() {
+      document.querySelectorAll(".cell.current").forEach(el => el.classList.remove("current"));
+    }
+
+    function showModule(i) {
+      const mod = mapData.modules[i];
+      if (!mod) return;
+      clearCurrent();
+      document.querySelectorAll(`.cell[data-mod="${i}"]`).forEach(el => el.classList.add("current"));
+      const weak = (mod.types || []).filter(t => t.level === "薄弱").map(t => t.name);
+      const extra = weak.length ? "薄弱题型：" + weak.join("、") : (mod.total ? "" : "这个模块还没练过");
+      document.getElementById("hint").innerHTML = hintText(mod.name, mod, extra);
+      const section = document.getElementById("mod-" + i);
+      if (section) section.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+
+    function showType(mi, ti) {
+      const mod = mapData.modules[mi];
+      const typ = mod && (mod.types || [])[ti];
+      if (!typ) return;
+      clearCurrent();
+      const cell = document.querySelector(`.cell[data-mod="${mi}"][data-type="${ti}"]`);
+      if (cell) cell.classList.add("current");
+      document.getElementById("hint").innerHTML = hintText(mod.name + " · " + typ.name, typ);
+      const section = document.getElementById("mod-" + mi);
+      if (section) section.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+
     function render(data) {
+      mapData = data || { modules: [] };
       const summary = data.summary || {};
       document.getElementById("meta").textContent =
         "更新于 " + (data.updatedAt || "—") + " · 已练 " + (summary.practicedTypes || 0) + " 个题型 · 待复习错题 " + (summary.cuotiCount || 0) + " 道";
@@ -80,12 +206,20 @@
       document.getElementById("score").innerHTML = LEVELS.map(lv =>
         `<div class="stat"><div class="n">${counts[lv] || 0}</div><div class="l">${lv}题型</div></div>`
       ).join("");
-      document.getElementById("mods").innerHTML = (data.modules || []).map(mod => {
+      drawRadar(data.modules || []);
+      drawHeat(data.modules || []);
+      document.getElementById("heat").onclick = (e) => {
+        const cell = e.target.closest(".cell");
+        if (cell) return showType(Number(cell.dataset.mod), Number(cell.dataset.type));
+        const name = e.target.closest(".mod-name");
+        if (name) showModule(Number(name.dataset.mod));
+      };
+      document.getElementById("mods").innerHTML = (data.modules || []).map((mod, i) => {
         const width = Math.round((mod.accuracy || 0) * 100);
         const types = (mod.types || []).map(t =>
           `<div class="type"><span class="name">${t.name}</span><span class="n">${accText(t)}${t.cuotiCount ? " · 错题 " + t.cuotiCount : ""}</span><span class="tag lv-${t.level}">${t.level}</span></div>`
         ).join("");
-        return `<section class="mod">
+        return `<section class="mod" id="mod-${i}">
           <div class="mod-h">
             <h2>${mod.name}</h2>
             <span class="tag lv-${mod.level}">${mod.level} · ${accText(mod)}</span>
@@ -95,6 +229,7 @@
         </section>`;
       }).join("") || `<p class="empty">还没有题目分类。</p>`;
     }
+
     fetch("/api/map", { cache: "no-store" })
       .then(r => r.json())
       .then(data => render(data.map || data))
