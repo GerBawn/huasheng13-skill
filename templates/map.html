@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>公考能力地图</title>
+  <style>
+    :root {
+      --bg: #f6f3ee;
+      --paper: #fffcf7;
+      --ink: #1f1b16;
+      --muted: #6b645b;
+      --line: #e6e0d6;
+      --accent: #2d4a6e;
+      --accent-soft: #e8eef6;
+      --ok: #2c6e4f;
+      --ok-soft: #e6f4ec;
+      --bad: #a33b32;
+      --bad-soft: #f8eaea;
+      --mid: #8a5a12;
+      --mid-soft: #f6eedf;
+      --idle: #8a857c;
+      --idle-soft: #eeebe6;
+      --shadow: 0 1px 2px rgba(31, 27, 22, .06), 0 8px 24px rgba(31, 27, 22, .05);
+      --radius: 14px;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; background: var(--bg); color: var(--ink); }
+    body { font: 16px/1.65 "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "Source Han Sans SC", system-ui, sans-serif; }
+    .app { max-width: 920px; margin: 0 auto; padding: 28px 20px 64px; }
+    h1 { margin: 0 0 6px; font-size: 22px; font-weight: 650; }
+    .meta { color: var(--muted); font-size: 13px; margin-bottom: 18px; }
+    .legend { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 18px; }
+    .tag { border-radius: 999px; padding: 4px 10px; font-size: 12px; }
+    .lv-未练 { background: var(--idle-soft); color: var(--idle); }
+    .lv-薄弱 { background: var(--bad-soft); color: var(--bad); }
+    .lv-一般 { background: var(--mid-soft); color: var(--mid); }
+    .lv-掌握 { background: var(--ok-soft); color: var(--ok); }
+    .score { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-bottom: 18px; }
+    .stat, .mod { background: var(--paper); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); }
+    .stat { padding: 12px 14px; }
+    .stat .n { font-size: 24px; font-weight: 650; }
+    .stat .l { font-size: 12px; color: var(--muted); }
+    .mod { padding: 16px 18px; margin-bottom: 12px; }
+    .mod-h { display: flex; justify-content: space-between; gap: 12px; align-items: center; margin-bottom: 10px; }
+    .mod-h h2 { margin: 0; font-size: 16px; }
+    .bar { height: 8px; background: var(--idle-soft); border-radius: 99px; overflow: hidden; margin: 8px 0 12px; }
+    .bar > span { display: block; height: 100%; background: var(--accent); }
+    .types { display: grid; gap: 6px; }
+    .type { display: grid; grid-template-columns: 1fr auto auto; gap: 10px; align-items: center; padding: 8px 10px; border-radius: 10px; background: #fff; border: 1px solid var(--line); }
+    .type .name { font-size: 14px; }
+    .type .n { font-size: 12px; color: var(--muted); }
+    .empty { color: var(--muted); }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <h1>公考能力地图</h1>
+    <div class="meta" id="meta">正在读取作答记录…</div>
+    <div class="legend">
+      <span class="tag lv-未练">未练</span>
+      <span class="tag lv-薄弱">薄弱</span>
+      <span class="tag lv-一般">一般</span>
+      <span class="tag lv-掌握">掌握</span>
+    </div>
+    <div class="score" id="score"></div>
+    <div id="mods"></div>
+  </div>
+  <script>
+    const LEVELS = ["未练", "薄弱", "一般", "掌握"];
+    function accText(row) {
+      if (!row.total) return "还没做";
+      return Math.round(row.accuracy * 100) + "% · " + row.correct + "/" + row.total;
+    }
+    function render(data) {
+      const summary = data.summary || {};
+      document.getElementById("meta").textContent =
+        "更新于 " + (data.updatedAt || "—") + " · 已练 " + (summary.practicedTypes || 0) + " 个题型 · 待复习错题 " + (summary.cuotiCount || 0) + " 道";
+      const counts = summary.byLevel || {};
+      document.getElementById("score").innerHTML = LEVELS.map(lv =>
+        `<div class="stat"><div class="n">${counts[lv] || 0}</div><div class="l">${lv}题型</div></div>`
+      ).join("");
+      document.getElementById("mods").innerHTML = (data.modules || []).map(mod => {
+        const width = Math.round((mod.accuracy || 0) * 100);
+        const types = (mod.types || []).map(t =>
+          `<div class="type"><span class="name">${t.name}</span><span class="n">${accText(t)}${t.cuotiCount ? " · 错题 " + t.cuotiCount : ""}</span><span class="tag lv-${t.level}">${t.level}</span></div>`
+        ).join("");
+        return `<section class="mod">
+          <div class="mod-h">
+            <h2>${mod.name}</h2>
+            <span class="tag lv-${mod.level}">${mod.level} · ${accText(mod)}</span>
+          </div>
+          <div class="bar"><span style="width:${mod.total ? width : 0}%"></span></div>
+          <div class="types">${types}</div>
+        </section>`;
+      }).join("") || `<p class="empty">还没有题目分类。</p>`;
+    }
+    fetch("/api/map", { cache: "no-store" })
+      .then(r => r.json())
+      .then(data => render(data.map || data))
+      .catch(() => {
+        document.getElementById("meta").textContent = "读不到记录服务，请确认本机服务已启动。";
+      });
+  </script>
+</body>
+</html>

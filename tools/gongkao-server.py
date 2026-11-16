@@ -175,6 +175,216 @@ def validate_record(payload: object) -> dict:
     return payload
 
 
+
+TAXONOMY = [
+    ("常识判断", ["政治", "经济", "法律", "人文历史", "科技生活", "地理国情"]),
+    ("言语理解", ["逻辑填空", "中心理解", "细节判断", "标题填入", "语句排序", "语句填空", "接语理解"]),
+    ("数量关系", ["工程问题", "行程问题", "利润问题", "排列组合", "概率", "容斥", "最值问题", "几何问题", "年龄问题", "比例问题"]),
+    ("判断推理", ["图形推理", "定义判断", "类比推理", "翻译推理", "加强削弱", "前提假设", "真假推理", "日常结论"]),
+    ("资料分析", ["增长量", "增长率", "比重", "两期比重", "平均数", "平均数增长量", "基期平均数", "倍数", "综合分析"]),
+    ("申论", ["归纳概括", "综合分析", "提出对策", "贯彻执行", "申发论述"]),
+]
+
+MODULE_ALIASES = {
+    "资料": "资料分析",
+    "资料分析": "资料分析",
+    "数量": "数量关系",
+    "数量关系": "数量关系",
+    "言语": "言语理解",
+    "言语理解": "言语理解",
+    "判断": "判断推理",
+    "判断推理": "判断推理",
+    "常识": "常识判断",
+    "常识判断": "常识判断",
+    "申论": "申论",
+}
+
+TYPE_ALIASES = {
+    "两集合容斥": "容斥",
+    "容斥问题": "容斥",
+    "类比": "类比推理",
+    "前提假设/搭桥": "前提假设",
+    "搭桥": "前提假设",
+    "比重升降": "两期比重",
+    "两期比重升降": "两期比重",
+    "增长": "增长量",
+    "工程": "工程问题",
+    "行程": "行程问题",
+    "利润": "利润问题",
+    "几何": "几何问题",
+    "年龄": "年龄问题",
+    "比例": "比例问题",
+    "最值": "最值问题",
+    "图形": "图形推理",
+    "定义": "定义判断",
+    "翻译": "翻译推理",
+    "加强": "加强削弱",
+    "削弱": "加强削弱",
+    "公文": "贯彻执行",
+    "大作文": "申发论述",
+    "作文": "申发论述",
+}
+
+
+def canon_module(name: str) -> str:
+    raw = (name or "").strip() or "未分类"
+    if raw in MODULE_ALIASES:
+        return MODULE_ALIASES[raw]
+    for official in MODULE_ALIASES.values():
+        if official in raw or raw in official:
+            return official
+    return raw
+
+
+def module_types(module: str) -> list[str]:
+    for name, types in TAXONOMY:
+        if name == module:
+            return list(types)
+    return []
+
+
+def canon_type(name: str, module: str) -> str:
+    raw = (name or "").strip() or "未分类"
+    if raw in TYPE_ALIASES:
+        return TYPE_ALIASES[raw]
+    official = module_types(module)
+    if raw in official:
+        return raw
+    matches = [item for item in official if item in raw or (len(raw) >= 2 and raw in item)]
+    if matches:
+        return max(matches, key=len)
+    return raw
+
+
+def mastery_level(total: int, correct: int, cuoti_count: int) -> str:
+    if total <= 0:
+        return "未练"
+    accuracy = correct / total
+    if total >= 3 and accuracy >= 0.8 and cuoti_count == 0:
+        return "掌握"
+    if (total >= 3 and accuracy < 0.6) or cuoti_count >= 2 or (cuoti_count >= 1 and accuracy < 0.6):
+        return "薄弱"
+    return "一般"
+
+
+def load_json(path: Path, default):
+    if not path.exists():
+        return default
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return default
+    return data if isinstance(data, dict) else default
+
+
+def build_map(root: Path) -> dict:
+    progress, cuoti = persist_progress(root)
+    stats: dict[tuple[str, str], dict] = {}
+
+    def ensure(module: str, typ: str) -> dict:
+        key = (module, typ)
+        row = stats.get(key)
+        if row is None:
+            row = {"module": module, "type": typ, "total": 0, "correct": 0, "cuotiCount": 0}
+            stats[key] = row
+        return row
+
+    for name, types in TAXONOMY:
+        for typ in types:
+            ensure(name, typ)
+
+    for path, rec in load_sessions(root):
+        for item in rec.get("items") or []:
+            if item.get("correct") is None:
+                continue
+            module = canon_module(item.get("module") or "")
+            typ = canon_type(item.get("type") or "", module)
+            row = ensure(module, typ)
+            row["total"] += 1
+            if item.get("correct"):
+                row["correct"] += 1
+
+    for item in (cuoti.get("items") or []):
+        module = canon_module(item.get("module") or "")
+        typ = canon_type(item.get("type") or "", module)
+        ensure(module, typ)["cuotiCount"] += 1
+
+    modules: list[dict] = []
+    seen_modules = {name for name, _ in TAXONOMY}
+    ordered_modules = [name for name, _ in TAXONOMY]
+    for module, _typ in stats:
+        if module not in seen_modules:
+            ordered_modules.append(module)
+            seen_modules.add(module)
+
+    level_counts = {"未练": 0, "薄弱": 0, "一般": 0, "掌握": 0}
+    practiced_types = 0
+    for module in ordered_modules:
+        type_names = module_types(module)
+        extras = [typ for (mod, typ) in stats if mod == module and typ not in type_names]
+        type_rows = []
+        m_total = m_correct = m_cuoti = 0
+        for typ in type_names + extras:
+            row = stats.get((module, typ), {"total": 0, "correct": 0, "cuotiCount": 0})
+            total = int(row.get("total") or 0)
+            correct = int(row.get("correct") or 0)
+            cuoti_count = int(row.get("cuotiCount") or 0)
+            accuracy = (correct / total) if total else 0
+            level = mastery_level(total, correct, cuoti_count)
+            level_counts[level] = level_counts.get(level, 0) + 1
+            if total:
+                practiced_types += 1
+            m_total += total
+            m_correct += correct
+            m_cuoti += cuoti_count
+            type_rows.append({
+                "name": typ,
+                "total": total,
+                "correct": correct,
+                "accuracy": round(accuracy, 3),
+                "cuotiCount": cuoti_count,
+                "level": level,
+            })
+        m_acc = (m_correct / m_total) if m_total else 0
+        modules.append({
+            "name": module,
+            "total": m_total,
+            "correct": m_correct,
+            "accuracy": round(m_acc, 3),
+            "cuotiCount": m_cuoti,
+            "level": mastery_level(m_total, m_correct, m_cuoti),
+            "types": type_rows,
+        })
+
+    return {
+        "updatedAt": progress.get("updatedAt") or now_iso(),
+        "summary": {
+            "sessionCount": len(progress.get("sessions") or []),
+            "practicedTypes": practiced_types,
+            "cuotiCount": len(cuoti.get("items") or []),
+            "byLevel": level_counts,
+        },
+        "modules": modules,
+    }
+
+
+def map_page_html() -> str:
+    here = Path(__file__).resolve().parent
+    for candidate in (here / "map.html", here.parent / "templates" / "map.html"):
+        if candidate.is_file():
+            return candidate.read_text(encoding="utf-8")
+    return "<!DOCTYPE html><html lang='zh-CN'><head><meta charset='UTF-8'><title>能力地图</title></head><body><p>缺少 map.html。</p></body></html>"
+
+
+def probe(port: int):
+    from urllib.request import urlopen
+    try:
+        with urlopen(f"http://127.0.0.1:{port}/api/health", timeout=1) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+    except Exception:
+        return None
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "GongkaoRecord/1.0"
 
@@ -217,11 +427,13 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/health":
             sessions = list((root / "sessions").glob("gongkao-session-*.json"))
+            port = self.server.server_port  # type: ignore[attr-defined]
             self._send(200, {
                 "ok": True,
                 "dataDir": str(root),
                 "sessionCount": len(sessions),
-                "port": self.server.server_port,  # type: ignore[attr-defined]
+                "port": port,
+                "mapUrl": f"http://127.0.0.1:{port}/map",
             })
             return
         if path == "/api/progress":
@@ -233,6 +445,12 @@ class Handler(BaseHTTPRequestHandler):
             persist_progress(root)
             cuoti = json.loads((root / "cuoti.json").read_text(encoding="utf-8"))
             self._send(200, {"ok": True, "cuoti": cuoti})
+            return
+        if path == "/api/map":
+            self._send(200, {"ok": True, "map": build_map(root)})
+            return
+        if path in ("/map", "/map.html"):
+            self._send_bytes(200, map_page_html().encode("utf-8"), "text/html; charset=utf-8")
             return
         if path.startswith("/pages/"):
             rel = path[len("/pages/"):]
@@ -303,6 +521,7 @@ def index_page(root: Path) -> str:
   <h1>公考记录服务已启动</h1>
   <p>记录目录：<code>{root}</code></p>
   <p>已保存场次：{len(sessions)}</p>
+  <p><a href="/map">打开能力地图</a></p>
   <h2>练习页</h2>
   <ul>{links}</ul>
   <p>交卷会自动写入 <code>sessions/</code>，并更新 <code>progress.json</code> 和 <code>cuoti.json</code>。</p>
@@ -320,10 +539,22 @@ def main() -> int:
     ensure_dirs(root)
     persist_progress(root)
 
-    httpd = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
+    existing = probe(args.port)
+    if existing and existing.get("ok"):
+        print(f"公考记录服务已在运行：http://127.0.0.1:{args.port}")
+        print(f"记录目录：{existing.get('dataDir') or root}")
+        print(f"能力地图：http://127.0.0.1:{args.port}/map")
+        return 0
+
+    try:
+        httpd = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
+    except OSError as exc:
+        print(f"无法监听 127.0.0.1:{args.port}：{exc}", file=sys.stderr)
+        return 1
     httpd.data_root = root
     print(f"公考记录服务已启动：http://127.0.0.1:{args.port}")
     print(f"记录目录：{root}")
+    print(f"能力地图：http://127.0.0.1:{args.port}/map")
     print("只监听本机。按 Ctrl+C 停止。")
     try:
         httpd.serve_forever()
